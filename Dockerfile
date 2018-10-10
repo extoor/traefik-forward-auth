@@ -9,8 +9,7 @@ RUN apk add --no-cache git \
 # Copy & build
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix nocgo -o /traefik-forward-auth app
 
-# Copy into scratch container
-FROM scratch
-COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
-COPY --from=builder /traefik-forward-auth ./
-ENTRYPOINT ["./traefik-forward-auth"]
+FROM alpine:3.8
+RUN apk --no-cache add ca-certificates tzdata
+COPY --from=builder /traefik-forward-auth /usr/local/bin/
+ENTRYPOINT ["traefik-forward-auth"]
