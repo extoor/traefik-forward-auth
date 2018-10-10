@@ -1,38 +1,37 @@
 package main
 
 import (
-	"crypto/hmac"
-	"crypto/rand"
-	"crypto/sha256"
-	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 	"time"
+
+	"traefik-forward-auth/cookie"
+	"traefik-forward-auth/providers"
 )
 
 // Forward Auth
 type ForwardAuth struct {
-	Path     string
-	Lifetime time.Duration
+	Path string
 
-	ClientId     string
-	ClientSecret string
-	Scope        string
-
-	LoginURL *url.URL
-	TokenURL *url.URL
-	UserURL  *url.URL
+	provider providers.Provider
 
 	CookieName     string
-	CookieDomains  []CookieDomain
+	CookieDomain   string
 	CSRFCookieName string
-	CookieSecret   []byte
+	CookieSeed     string
 	CookieSecure   bool
+	CookieCipher   *cookie.Cipher
+	CookieExpire   time.Duration
+	CookieRefresh  time.Duration
+	Validator      func(string) bool
+
+	PassUserHeaders bool
+	SetXAuthRequest bool
+	PassAccessToken bool
 
 	AuthDomain []string
 
@@ -42,347 +41,340 @@ type ForwardAuth struct {
 	Direct bool
 }
 
-// Request Validation
-
-// Cookie = hash(secret, cookie domain, email, expires)|expires|email
-func (f *ForwardAuth) ValidateCookie(r *http.Request, c *http.Cookie) (bool, string, error) {
-	parts := strings.Split(c.Value, "|")
-
-	if len(parts) != 3 {
-		return false, "", errors.New("Invalid cookie format")
-	}
-
-	mac, err := base64.URLEncoding.DecodeString(parts[0])
-	if err != nil {
-		return false, "", errors.New("Unable to decode cookie mac")
-	}
-
-	expectedSignature := f.cookieSignature(r, parts[2], parts[1])
-	expected, err := base64.URLEncoding.DecodeString(expectedSignature)
-	if err != nil {
-		return false, "", errors.New("Unable to generate mac")
-	}
-
-	// Valid token?
-	if !hmac.Equal(mac, expected) {
-		return false, "", errors.New("Invalid cookie mac")
-	}
-
-	expires, err := strconv.ParseInt(parts[1], 10, 64)
-	if err != nil {
-		return false, "", errors.New("Unable to parse cookie expiry")
-	}
-
-	// Has it expired?
-	if time.Unix(expires, 0).Before(time.Now()) {
-		return false, "", errors.New("Cookie has expired")
-	}
-
-	// Looks valid
-	return true, parts[2], nil
-}
-
-func (f *ForwardAuth) ShouldValidate(r *http.Request) bool {
-	if len(f.AuthDomain) > 0 {
-		hostname := r.Header.Get("X-Forwarded-Host")
-		for _, domain := range f.AuthDomain {
-			if domain == hostname {
-				return true
-			}
-		}
-
-		return false
-	}
-
-	return true
-}
-
-// Validate email against domain
-func (f *ForwardAuth) validEmailDomain(email string) bool {
-	parts := strings.Split(email, "@")
-	if len(parts) < 2 {
-		return false
-	}
-
-	for _, domain := range f.Domain {
-		if domain == parts[1] {
-			return true
+func (f *ForwardAuth) MakeSessionCookie(req *http.Request, value string, expiration time.Duration, now time.Time) *http.Cookie {
+	if value != "" {
+		value = cookie.SignedValue(f.CookieSeed, f.CookieName, value, now)
+		if len(value) > 4096 {
+			// Cookies cannot be larger than 4kb
+			log.Warningf("Cookie Size: %d bytes", len(value))
 		}
 	}
-
-	return false
+	return f.makeCookie(req, f.CookieName, value, expiration, now)
 }
 
-// Validate email
-func (f *ForwardAuth) validEmail(email string) bool {
-	for _, allowed := range f.Email {
-		if email == allowed {
-			return true
+func (f *ForwardAuth) MakeCSRFCookie(req *http.Request, value string, expiration time.Duration, now time.Time) *http.Cookie {
+	return f.makeCookie(req, f.CSRFCookieName, value, expiration, now)
+}
+
+func (f *ForwardAuth) makeCookie(req *http.Request, name string, value string, expiration time.Duration, now time.Time) *http.Cookie {
+	domain := f.redirectBase(req).Host
+
+	if f.CookieDomain != "" {
+		if h, _, err := net.SplitHostPort(domain); err == nil {
+			domain = h
+		}
+		if !strings.HasSuffix(domain, f.CookieDomain) {
+			log.Warningf("Request host is %q but using configured cookie domain of %q", domain, f.CookieDomain)
 		}
 	}
-
-	return false
-}
-
-func (f *ForwardAuth) ValidateEmail(email string) bool {
-	// valid if not configured
-	if len(fw.Email) == 0 && len(fw.Domain) == 0 {
-		return true
-	}
-
-	return fw.validEmailDomain(email) || fw.validEmail(email)
-}
-
-// OAuth Methods
-
-// Get login url
-func (f *ForwardAuth) GetLoginURL(r *http.Request, nonce string) string {
-	state := fmt.Sprintf("%s:%s", nonce, f.returnUrl(r))
-
-	q := url.Values{}
-	q.Set("client_id", fw.ClientId)
-	q.Set("response_type", "code")
-	q.Set("scope", fw.Scope)
-	// q.Set("approval_prompt", fw.ClientId)
-	q.Set("redirect_uri", f.redirectUri(r))
-	q.Set("state", state)
-
-	var u url.URL
-	u = *fw.LoginURL
-	u.RawQuery = q.Encode()
-
-	return u.String()
-}
-
-// Exchange code for token
-
-type Token struct {
-	Token string `json:"access_token"`
-}
-
-func (f *ForwardAuth) ExchangeCode(r *http.Request, code string) (string, error) {
-	form := url.Values{}
-	form.Set("client_id", fw.ClientId)
-	form.Set("client_secret", fw.ClientSecret)
-	form.Set("grant_type", "authorization_code")
-	form.Set("redirect_uri", f.redirectUri(r))
-	form.Set("code", code)
-
-	res, err := http.PostForm(fw.TokenURL.String(), form)
-	if err != nil {
-		return "", err
-	}
-
-	var token Token
-	defer res.Body.Close()
-	err = json.NewDecoder(res.Body).Decode(&token)
-
-	return token.Token, err
-}
-
-// Get user with token
-
-type User struct {
-	Id       string `json:"id"`
-	Email    string `json:"email"`
-	Verified bool   `json:"verified_email"`
-	Hd       string `json:"hd"`
-}
-
-func (f *ForwardAuth) GetUser(token string) (User, error) {
-	var user User
-
-	client := &http.Client{}
-	req, err := http.NewRequest("GET", fw.UserURL.String(), nil)
-	if err != nil {
-		return user, err
-	}
-
-	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", token))
-	res, err := client.Do(req)
-	if err != nil {
-		return user, err
-	}
-
-	defer res.Body.Close()
-	err = json.NewDecoder(res.Body).Decode(&user)
-
-	return user, err
-}
-
-// Utility methods
-
-// Get the redirect base
-func (f *ForwardAuth) redirectBase(r *http.Request) string {
-	proto := r.Header.Get("X-Forwarded-Proto")
-	host := r.Header.Get("X-Forwarded-Host")
-
-	// Direct mode
-	if f.Direct {
-		proto = "http"
-		host = r.Host
-	}
-
-	return fmt.Sprintf("%s://%s", proto, host)
-}
-
-// Return url
-func (f *ForwardAuth) returnUrl(r *http.Request) string {
-	path := r.Header.Get("X-Forwarded-Uri")
-
-	// Testing
-	if f.Direct {
-		path = r.URL.String()
-	}
-
-	return fmt.Sprintf("%s%s", f.redirectBase(r), path)
-}
-
-// Get oauth redirect uri
-func (f *ForwardAuth) redirectUri(r *http.Request) string {
-	return fmt.Sprintf("%s%s", f.redirectBase(r), f.Path)
-}
-
-// Cookie methods
-
-// Create an auth cookie
-func (f *ForwardAuth) MakeCookie(r *http.Request, email string) *http.Cookie {
-	expires := f.cookieExpiry()
-	mac := f.cookieSignature(r, email, fmt.Sprintf("%d", expires.Unix()))
-	value := fmt.Sprintf("%s|%d|%s", mac, expires.Unix(), email)
 
 	return &http.Cookie{
-		Name:     f.CookieName,
+		Name:     name,
 		Value:    value,
 		Path:     "/",
-		Domain:   f.cookieDomain(r),
+		Domain:   domain,
 		HttpOnly: true,
 		Secure:   f.CookieSecure,
-		Expires:  expires,
+		Expires:  now.Add(expiration),
 	}
 }
 
-// Make a CSRF cookie (used during login only)
-func (f *ForwardAuth) MakeCSRFCookie(r *http.Request, nonce string) *http.Cookie {
-	return &http.Cookie{
-		Name:     f.CSRFCookieName,
-		Value:    nonce,
-		Path:     "/",
-		Domain:   f.cookieDomain(r),
-		HttpOnly: true,
-		Secure:   f.CookieSecure,
-		Expires:  f.cookieExpiry(),
+func (f *ForwardAuth) ClearCSRFCookie(rw http.ResponseWriter, req *http.Request) {
+	http.SetCookie(rw, f.MakeCSRFCookie(req, "", time.Hour*-1, time.Now()))
+}
+
+func (f *ForwardAuth) SetCSRFCookie(rw http.ResponseWriter, req *http.Request, val string) {
+	http.SetCookie(rw, f.MakeCSRFCookie(req, val, f.CookieExpire, time.Now()))
+}
+
+func (f *ForwardAuth) ClearSessionCookie(rw http.ResponseWriter, req *http.Request) {
+	clr := f.MakeSessionCookie(req, "", time.Hour*-1, time.Now())
+	http.SetCookie(rw, clr)
+
+	// ugly hack because default domain changed
+	if f.CookieDomain == "" {
+		clr2 := *clr
+		clr2.Domain = f.redirectBase(req).Host
+		http.SetCookie(rw, &clr2)
 	}
 }
 
-// Create a cookie to clear csrf cookie
-func (f *ForwardAuth) ClearCSRFCookie(r *http.Request) *http.Cookie {
-	return &http.Cookie{
-		Name:     f.CSRFCookieName,
-		Value:    "",
-		Path:     "/",
-		Domain:   f.cookieDomain(r),
-		HttpOnly: true,
-		Secure:   f.CookieSecure,
-		Expires:  time.Now().Local().Add(time.Hour * -1),
-	}
+func (f *ForwardAuth) SetSessionCookie(rw http.ResponseWriter, req *http.Request, val string) {
+	http.SetCookie(rw, f.MakeSessionCookie(req, val, f.CookieExpire, time.Now()))
 }
 
-// Validate the csrf cookie against state
-func (f *ForwardAuth) ValidateCSRFCookie(c *http.Cookie, state string) (bool, string, error) {
-	if len(c.Value) != 32 {
-		return false, "", errors.New("Invalid CSRF cookie value")
-	}
-
-	if len(state) < 34 {
-		return false, "", errors.New("Invalid CSRF state value")
-	}
-
-	// Check nonce match
-	if c.Value != state[:32] {
-		return false, "", errors.New("CSRF cookie does not match state")
-	}
-
-	// Valid, return redirect
-	return true, state[33:], nil
-}
-
-func (f *ForwardAuth) Nonce() (error, string) {
-	// Make nonce
-	nonce := make([]byte, 16)
-	_, err := rand.Read(nonce)
+func (f *ForwardAuth) LoadCookiedSession(req *http.Request) (*providers.SessionState, time.Duration, error) {
+	var age time.Duration
+	c, err := req.Cookie(f.CookieName)
 	if err != nil {
-		return err, ""
+		// always http.ErrNoCookie
+		return nil, age, fmt.Errorf("Cookie %q not present", f.CookieName)
+	}
+	val, timestamp, ok := cookie.Validate(c, f.CookieSeed, f.CookieExpire)
+	if !ok {
+		return nil, age, errors.New("Cookie Signature not valid")
 	}
 
-	return nil, fmt.Sprintf("%x", nonce)
+	session, err := f.provider.SessionFromCookie(val, f.CookieCipher)
+	if err != nil {
+		return nil, age, err
+	}
+
+	age = time.Now().Truncate(time.Second).Sub(timestamp)
+	return session, age, nil
 }
 
-// Cookie domain
-func (f *ForwardAuth) cookieDomain(r *http.Request) string {
-	host := r.Header.Get("X-Forwarded-Host")
+func (f *ForwardAuth) SaveSession(rw http.ResponseWriter, req *http.Request, s *providers.SessionState) error {
+	value, err := f.provider.CookieForSession(s, f.CookieCipher)
+	if err != nil {
+		return err
+	}
+	f.SetSessionCookie(rw, req, value)
+	return nil
+}
 
-	// Direct mode
-	if f.Direct {
-		host = r.Host
+func (f *ForwardAuth) Authenticate(rw http.ResponseWriter, req *http.Request) int {
+	var saveSession, clearSession, revalidated bool
+	remoteAddr := getRemoteAddr(req)
+
+	session, sessionAge, err := f.LoadCookiedSession(req)
+	if err != nil {
+		log.Errorf("%s %s", remoteAddr, err)
+	}
+	if session != nil && sessionAge > f.CookieRefresh && f.CookieRefresh != time.Duration(0) {
+		log.Infof("%s refreshing %s old session cookie for %s (refresh after %s)", remoteAddr, sessionAge, session, f.CookieRefresh)
+		saveSession = true
 	}
 
-	// Remove port for matching
-	p := strings.Split(host, ":")
+	if ok, err := f.provider.RefreshSessionIfNeeded(session); err != nil {
+		log.Errorf("%s removing session. error refreshing access token %s %s", remoteAddr, err, session)
+		clearSession = true
+		session = nil
+	} else if ok {
+		saveSession = true
+		revalidated = true
+	}
 
-	// Check if any of the given cookie domains matches
-	for _, domain := range f.CookieDomains {
-		if domain.Match(p[0]) {
-			return domain.Domain
+	if session != nil && session.IsExpired() {
+		log.Infof("%s removing session. token expired %s", remoteAddr, session)
+		session = nil
+		saveSession = false
+		clearSession = true
+	}
+
+	if saveSession && !revalidated && session != nil && session.AccessToken != "" {
+		if !f.provider.ValidateSessionState(session) {
+			log.Errorf("%s removing session. error validating %s", remoteAddr, session)
+			saveSession = false
+			session = nil
+			clearSession = true
 		}
 	}
 
-	return p[0]
+	if session != nil && session.Email != "" && !f.Validator(session.Email) {
+		log.Infof("%s Permission Denied: removing session %s", remoteAddr, session)
+		session = nil
+		saveSession = false
+		clearSession = true
+	}
+
+	if saveSession && session != nil {
+		err := f.SaveSession(rw, req, session)
+		if err != nil {
+			log.Errorf("%s %s", remoteAddr, err)
+			return http.StatusInternalServerError
+		}
+	}
+
+	if clearSession {
+		f.ClearSessionCookie(rw, req)
+	}
+
+	if session == nil {
+		return http.StatusForbidden
+	}
+
+	if f.PassUserHeaders {
+		req.Header["X-Forwarded-User"] = []string{session.User}
+		if session.Email != "" {
+			req.Header["X-Forwarded-Email"] = []string{session.Email}
+		}
+	}
+	if f.SetXAuthRequest {
+		rw.Header().Set("X-Auth-Request-User", session.User)
+		if session.Email != "" {
+			rw.Header().Set("X-Auth-Request-Email", session.Email)
+		}
+	}
+	if f.PassAccessToken && session.AccessToken != "" {
+		req.Header["X-Forwarded-Access-Token"] = []string{session.AccessToken}
+	}
+	if session.Email == "" {
+		rw.Header().Set("GAP-Auth", session.User)
+	} else {
+		rw.Header().Set("GAP-Auth", session.Email)
+	}
+	return http.StatusAccepted
 }
 
-// Create cookie hmac
-func (f *ForwardAuth) cookieSignature(r *http.Request, email, expires string) string {
-	hash := hmac.New(sha256.New, f.CookieSecret)
-	hash.Write([]byte(f.cookieDomain(r)))
-	hash.Write([]byte(email))
-	hash.Write([]byte(expires))
-	return base64.URLEncoding.EncodeToString(hash.Sum(nil))
+func getRemoteAddr(req *http.Request) (s string) {
+	s = req.RemoteAddr
+	if req.Header.Get("X-Real-IP") != "" {
+		s += fmt.Sprintf(" (%q)", req.Header.Get("X-Real-IP"))
+	}
+	return
 }
 
-// Get cookie expirary
-func (f *ForwardAuth) cookieExpiry() time.Time {
-	return time.Now().Local().Add(f.Lifetime)
-}
-
-// Cookie Domain
-
-// Cookie Domain
-type CookieDomain struct {
-	Domain       string
-	DomainLen    int
-	SubDomain    string
-	SubDomainLen int
-}
-
-func NewCookieDomain(domain string) *CookieDomain {
-	return &CookieDomain{
-		Domain:       domain,
-		DomainLen:    len(domain),
-		SubDomain:    fmt.Sprintf(".%s", domain),
-		SubDomainLen: len(domain) + 1,
+func (f *ForwardAuth) redirectBase(req *http.Request) url.URL {
+	return url.URL{
+		Scheme: req.Header.Get("X-Forwarded-Proto"),
+		Host:   req.Header.Get("X-Forwarded-Host"),
 	}
 }
 
-func (c *CookieDomain) Match(host string) bool {
-	// Exact domain match?
-	if host == c.Domain {
-		return true
+func (f *ForwardAuth) ErrorPage(rw http.ResponseWriter, code int, title string, message string) {
+	http.Error(rw, message, code)
+}
+
+func (f *ForwardAuth) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
+	switch path := req.URL.Path; {
+	case path == f.Path:
+		f.OAuthCallback(rw, req)
+	default:
+		f.Default(rw, req)
+	}
+}
+
+func (f *ForwardAuth) Default(rw http.ResponseWriter, req *http.Request) {
+	status := f.Authenticate(rw, req)
+	if status == http.StatusInternalServerError {
+		f.ErrorPage(rw, http.StatusInternalServerError, "Internal Error", "Internal Error")
+	} else if status == http.StatusForbidden {
+		f.OAuthStart(rw, req)
+	}
+}
+
+func (f *ForwardAuth) SignOut(rw http.ResponseWriter, req *http.Request) {
+	f.ClearSessionCookie(rw, req)
+	http.Redirect(rw, req, "/", 302)
+}
+
+func (f *ForwardAuth) OAuthStart(rw http.ResponseWriter, req *http.Request) {
+	nonce, err := cookie.Nonce()
+	if err != nil {
+		f.ErrorPage(rw, 500, "Internal Error", err.Error())
+		return
+	}
+	f.SetCSRFCookie(rw, req, nonce)
+	redirect, err := f.GetRedirect(req)
+	if err != nil {
+		f.ErrorPage(rw, 500, "Internal Error", err.Error())
+		return
+	}
+	redirectURI := f.GetRedirectURI(req).String()
+	http.Redirect(rw, req, f.provider.GetLoginURL(redirectURI, fmt.Sprintf("%v:%v", nonce, redirect)), 302)
+}
+
+func (f *ForwardAuth) OAuthCallback(rw http.ResponseWriter, req *http.Request) {
+	remoteAddr := getRemoteAddr(req)
+
+	// finish the oauth cycle
+	err := req.ParseForm()
+	if err != nil {
+		f.ErrorPage(rw, 500, "Internal Error", err.Error())
+		return
+	}
+	errorString := req.Form.Get("error")
+	if errorString != "" {
+		f.ErrorPage(rw, 403, "Permission Denied", errorString)
+		return
 	}
 
-	// Subdomain match?
-	if len(host) >= c.SubDomainLen && host[len(host)-c.SubDomainLen:] == c.SubDomain {
-		return true
+	session, err := f.redeemCode(req, req.Form.Get("code"))
+	if err != nil {
+		log.Infof("%s error redeeming code %s", remoteAddr, err)
+		f.ErrorPage(rw, 500, "Internal Error", "Internal Error")
+		return
 	}
 
-	return false
+	s := strings.SplitN(req.Form.Get("state"), ":", 2)
+	if len(s) != 2 {
+		f.ErrorPage(rw, 500, "Internal Error", "Invalid State")
+		return
+	}
+	nonce := s[0]
+	redirect := s[1]
+	c, err := req.Cookie(f.CSRFCookieName)
+	if err != nil {
+		f.ErrorPage(rw, 403, "Permission Denied", err.Error())
+		return
+	}
+	f.ClearCSRFCookie(rw, req)
+	if c.Value != nonce {
+		log.Infof("%s csrf token mismatch, potential attack", remoteAddr)
+		f.ErrorPage(rw, 403, "Permission Denied", "csrf failed")
+		return
+	}
+
+	if !strings.HasPrefix(redirect, "/") || strings.HasPrefix(redirect, "//") {
+		redirect = "/"
+	}
+
+	// set cookie, or deny
+	if f.Validator(session.Email) && f.provider.ValidateGroup(session.Email) {
+		log.Debugf("%s authentication complete %s", remoteAddr, session)
+		err := f.SaveSession(rw, req, session)
+		if err != nil {
+			log.Errorf("%s %s", remoteAddr, err)
+			f.ErrorPage(rw, 500, "Internal Error", "Internal Error")
+			return
+		}
+		http.Redirect(rw, req, redirect, 302)
+	} else {
+		log.Debugf("%s Permission Denied: %q is unauthorized", remoteAddr, session.Email)
+		f.ErrorPage(rw, 403, "Permission Denied", "Invalid Account")
+	}
+}
+
+func (f *ForwardAuth) GetRedirect(req *http.Request) (redirect string, err error) {
+	err = req.ParseForm()
+	if err != nil {
+		return
+	}
+
+	redirect = req.Form.Get("rd")
+	if redirect == "" || !strings.HasPrefix(redirect, "/") || strings.HasPrefix(redirect, "//") {
+		redirect = "/"
+	}
+
+	return
+}
+
+func (f *ForwardAuth) GetRedirectURI(req *http.Request) *url.URL {
+	u := f.redirectBase(req)
+	u.Path = f.Path
+	return &u
+}
+
+func (f *ForwardAuth) redeemCode(req *http.Request, code string) (s *providers.SessionState, err error) {
+	if code == "" {
+		return nil, errors.New("missing code")
+	}
+	redirectURI := f.GetRedirectURI(req).String()
+	s, err = f.provider.Redeem(redirectURI, code)
+	if err != nil {
+		return
+	}
+
+	if s.Email == "" {
+		s.Email, err = f.provider.GetEmailAddress(s)
+	}
+
+	if s.User == "" {
+		s.User, err = f.provider.GetUserName(s)
+		if err != nil && err.Error() == "not implemented" {
+			err = nil
+		}
+	}
+	return
 }
