@@ -1,18 +1,18 @@
-FROM golang:1.10-alpine as builder
+FROM golang:1.11-alpine as builder
 
 # Setup
 RUN mkdir /app
 WORKDIR /app
 
+ADD . ${GOPATH}/src/app
+
 # Add libraries
 RUN apk add --no-cache git && \
-  go get "github.com/namsral/flag" && \
-  go get "github.com/op/go-logging" && \
-  apk del git
+    go get -d -v app
+    apk del git
 
 # Copy & build
-ADD . /app/
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix nocgo -o /traefik-forward-auth .
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix nocgo -o /traefik-forward-auth app
 
 # Copy into scratch container
 FROM scratch
