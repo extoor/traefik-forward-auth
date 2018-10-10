@@ -129,7 +129,7 @@ func handleCallback(w http.ResponseWriter, r *http.Request, qs url.Values) {
 }
 
 var format = logging.MustStringFormatter(
-	`%{color}[%{time:02 Jan 2006 15:04:05 MST}] %{shortfunc} ▶ %{level:.4s} %{id:03x}%{color:reset} %{message}`,
+	`%{color}[%{time:02 Jan 2006 15:04:05 MST}] %{shortfunc} ☕ %{level:.4s} %{id:03x}%{color:reset} %{message}`,
 )
 
 // Main
@@ -239,6 +239,6 @@ func main() {
 	// Attach handler
 	http.HandleFunc("/", handler)
 
-	log.Notice("Litening on :4181")
+	log.Notice("Listening on :4181")
 	log.Notice(http.ListenAndServe(":4181", nil))
 }
