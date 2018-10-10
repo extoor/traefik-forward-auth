@@ -1,15 +1,10 @@
 FROM golang:1.11-alpine as builder
 
-# Setup
-RUN mkdir /app
-WORKDIR /app
-
 ADD . ${GOPATH}/src/app
 
 # Add libraries
-RUN apk add --no-cache git && \
-    go get -d -v app
-    apk del git
+RUN apk add --no-cache git \
+    && go get -d -v app
 
 # Copy & build
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix nocgo -o /traefik-forward-auth app
