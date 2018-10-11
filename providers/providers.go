@@ -2,7 +2,10 @@ package providers
 
 import (
 	"traefik-forward-auth/cookie"
+	"traefik-forward-auth/logging"
 )
+
+var log = logging.GetLogger()
 
 type Provider interface {
 	Data() *ProviderData

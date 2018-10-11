@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -182,7 +181,7 @@ func getAdminService(adminEmail string, credentialsReader io.Reader) *admin.Serv
 func userInGroup(service *admin.Service, groups []string, email string) bool {
 	user, err := fetchUser(service, email)
 	if err != nil {
-		log.Printf("error fetching user: %v", err)
+		log.Errorf("fetching user: %v", err)
 		return false
 	}
 	id := user.Id
@@ -192,9 +191,9 @@ func userInGroup(service *admin.Service, groups []string, email string) bool {
 		members, err := fetchGroupMembers(service, group)
 		if err != nil {
 			if err, ok := err.(*googleapi.Error); ok && err.Code == 404 {
-				log.Printf("error fetching members for group %s: group does not exist", group)
+				log.Errorf("fetching members for group %s: group does not exist", group)
 			} else {
-				log.Printf("error fetching group members: %v", err)
+				log.Errorf("fetching group members: %v", err)
 				return false
 			}
 		}
@@ -267,7 +266,7 @@ func (p *GoogleProvider) RefreshSessionIfNeeded(s *SessionState) (bool, error) {
 	origExpiration := s.ExpiresOn
 	s.AccessToken = newToken
 	s.ExpiresOn = time.Now().Add(duration).Truncate(time.Second)
-	log.Printf("refreshed access token %s (expired on %s)", s, origExpiration)
+	log.Debugf("refreshed access token %s (expired on %s)", s, origExpiration)
 	return true, nil
 }
 

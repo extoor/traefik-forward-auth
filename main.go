@@ -3,21 +3,16 @@ package main
 import (
 	"fmt"
 	"net/http"
-	"os"
 	"time"
+
 	"traefik-forward-auth/cookie"
+	"traefik-forward-auth/logging"
 	"traefik-forward-auth/providers"
 
 	"github.com/namsral/flag"
-	"github.com/op/go-logging"
 )
 
-var (
-	log    = logging.MustGetLogger("traefik-forward-auth")
-	format = logging.MustStringFormatter(
-		`%{color}[%{time:02 Jan 2006 15:04:05 MST}] %{shortfunc} ☕ %{level:.4s} %{id:03x}%{color:reset} %{message}`,
-	)
-)
+var log = logging.GetLogger()
 
 func notPresent(val *string, msg string) bool {
 	if *val == "" {
@@ -46,10 +41,6 @@ func main() {
 	//emailList := flag.String("email", "", "Comma separated list of emails to allow")
 
 	flag.Parse()
-
-	logBackend := logging.NewLogBackend(os.Stdout, "", 0)
-	logger := logging.NewBackendFormatter(logBackend, format)
-	logging.SetBackend(logger)
 
 	if notPresent(clientId, "client-id must be set") {
 		return
