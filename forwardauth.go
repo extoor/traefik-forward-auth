@@ -213,8 +213,8 @@ func (f *ForwardAuth) Authenticate(rw http.ResponseWriter, req *http.Request) in
 
 func getRemoteAddr(req *http.Request) (s string) {
 	s = req.RemoteAddr
-	if req.Header.Get("X-Real-IP") != "" {
-		s += fmt.Sprintf(" (%q)", req.Header.Get("X-Real-IP"))
+	if req.Header.Get("X-Forwarded-For") != "" {
+		s += fmt.Sprintf(" (%q)", req.Header.Get("X-Forwarded-For"))
 	}
 	return
 }
@@ -236,7 +236,10 @@ func (f *ForwardAuth) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		log.Error(err)
 	}
 
-	switch path := r.Path; {
+	req.URL = r
+	req.RemoteAddr = getRemoteAddr(req)
+
+	switch path := req.URL.Path; {
 	case path == f.Path:
 		f.OAuthCallback(rw, req)
 	default:
