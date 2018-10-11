@@ -27,18 +27,12 @@ type ForwardAuth struct {
 	CookieCipher   *cookie.Cipher
 	CookieExpire   time.Duration
 	CookieRefresh  time.Duration
-	Validator      func(string) bool
+
+	Validator func(string) bool
 
 	PassUserHeaders bool
 	SetXAuthRequest bool
 	PassAccessToken bool
-
-	AuthDomain []string
-
-	Domain []string
-	Email  []string
-
-	Direct bool
 }
 
 func (f *ForwardAuth) MakeSessionCookie(req *http.Request, value string, expiration time.Duration, now time.Time) *http.Cookie {
@@ -57,7 +51,7 @@ func (f *ForwardAuth) MakeCSRFCookie(req *http.Request, value string, expiration
 }
 
 func (f *ForwardAuth) makeCookie(req *http.Request, name string, value string, expiration time.Duration, now time.Time) *http.Cookie {
-	domain := f.redirectBase(req).Host
+	domain := redirectBase(req).Host
 
 	if f.CookieDomain != "" {
 		if h, _, err := net.SplitHostPort(domain); err == nil {
@@ -94,7 +88,7 @@ func (f *ForwardAuth) ClearSessionCookie(rw http.ResponseWriter, req *http.Reque
 	// ugly hack because default domain changed
 	if f.CookieDomain == "" {
 		clr2 := *clr
-		clr2.Domain = f.redirectBase(req).Host
+		clr2.Domain = redirectBase(req).Host
 		http.SetCookie(rw, &clr2)
 	}
 }
@@ -142,7 +136,7 @@ func (f *ForwardAuth) Authenticate(rw http.ResponseWriter, req *http.Request) in
 		log.Errorf("%s %s", remoteAddr, err)
 	}
 	if session != nil && sessionAge > f.CookieRefresh && f.CookieRefresh != time.Duration(0) {
-		log.Infof("%s refreshing %s old session cookie for %s (refresh after %s)", remoteAddr, sessionAge, session, f.CookieRefresh)
+		log.Debugf("%s refreshing %s old session cookie for %s (refresh after %s)", remoteAddr, sessionAge, session, f.CookieRefresh)
 		saveSession = true
 	}
 
@@ -156,7 +150,7 @@ func (f *ForwardAuth) Authenticate(rw http.ResponseWriter, req *http.Request) in
 	}
 
 	if session != nil && session.IsExpired() {
-		log.Infof("%s removing session. token expired %s", remoteAddr, session)
+		log.Debugf("%s removing session. token expired %s", remoteAddr, session)
 		session = nil
 		saveSession = false
 		clearSession = true
@@ -172,7 +166,7 @@ func (f *ForwardAuth) Authenticate(rw http.ResponseWriter, req *http.Request) in
 	}
 
 	if session != nil && session.Email != "" && !f.Validator(session.Email) {
-		log.Infof("%s Permission Denied: removing session %s", remoteAddr, session)
+		log.Debugf("%s Permission Denied: removing session %s", remoteAddr, session)
 		session = nil
 		saveSession = false
 		clearSession = true
@@ -225,8 +219,8 @@ func getRemoteAddr(req *http.Request) (s string) {
 	return
 }
 
-func (f *ForwardAuth) redirectBase(req *http.Request) url.URL {
-	return url.URL{
+func redirectBase(req *http.Request) *url.URL {
+	return &url.URL{
 		Scheme: req.Header.Get("X-Forwarded-Proto"),
 		Host:   req.Header.Get("X-Forwarded-Host"),
 	}
@@ -351,9 +345,9 @@ func (f *ForwardAuth) GetRedirect(req *http.Request) (redirect string, err error
 }
 
 func (f *ForwardAuth) GetRedirectURI(req *http.Request) *url.URL {
-	u := f.redirectBase(req)
+	u := redirectBase(req)
 	u.Path = f.Path
-	return &u
+	return u
 }
 
 func (f *ForwardAuth) redeemCode(req *http.Request, code string) (s *providers.SessionState, err error) {

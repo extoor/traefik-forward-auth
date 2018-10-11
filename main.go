@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"strings"
 	"time"
 	"traefik-forward-auth/cookie"
 	"traefik-forward-auth/providers"
@@ -42,10 +41,9 @@ func main() {
 	//cookieDomainList := flag.String("cookie-domains", "", "Comma separated list of cookie domains")
 	cookieSecret := flag.String("cookie-secret", "", "*Cookie secret (required)")
 	cookieSecure := flag.Bool("cookie-secure", true, "Use secure cookies")
-	authDomainList := flag.String("auth-domain", "", "Comma separated list of domains to forward auth for")
-	domainList := flag.String("domain", "", "Comma separated list of email domains to allow")
-	emailList := flag.String("email", "", "Comma separated list of emails to allow")
-	direct := flag.Bool("direct", false, "Run in direct mode (use own hostname as oppose to X-Forwarded-Host, used for testing/development)")
+	//authDomainList := flag.String("auth-domain", "", "Comma separated list of domains to forward auth for")
+	//domainList := flag.String("domain", "", "Comma separated list of email domains to allow")
+	//emailList := flag.String("email", "", "Comma separated list of emails to allow")
 
 	flag.Parse()
 
@@ -63,31 +61,14 @@ func main() {
 		return
 	}
 
-	var authDomain []string
-	if *authDomainList != "" {
-		authDomain = strings.Split(*authDomainList, ",")
-	}
-
-	var domain []string
-	if *domainList != "" {
-		domain = strings.Split(*domainList, ",")
-	}
-
-	var email []string
-	if *emailList != "" {
-		email = strings.Split(*emailList, ",")
-	}
-
-	cipher, err := cookie.NewCipher([]byte(*cookieSecret))
+	cipher, err := cookie.NewCipher(secretBytes(*cookieSecret))
 	if err != nil {
 		log.Error(err)
 		return
 	}
 
-	// Setup
 	h := &ForwardAuth{
-		Path:         fmt.Sprintf("/%s", *path),
-		CookieExpire: time.Duration(*lifetime) * time.Second,
+		Path: fmt.Sprintf("/%s", *path),
 
 		provider: providers.New(&providers.ProviderData{
 			ProviderName: "Google",
@@ -100,12 +81,15 @@ func main() {
 		CookieSeed:     *cookieSecret,
 		CookieSecure:   *cookieSecure,
 		CookieCipher:   cipher,
-		AuthDomain:     authDomain,
+		CookieExpire:   time.Duration(*lifetime) * time.Second,
 
-		Domain: domain,
-		Email:  email,
+		Validator: func(s string) bool {
+			return true
+		},
 
-		Direct: *direct,
+		PassAccessToken: true,
+		PassUserHeaders: true,
+		SetXAuthRequest: true,
 	}
 
 	log.Notice("Listening on :4181")
