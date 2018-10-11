@@ -231,7 +231,12 @@ func (f *ForwardAuth) ErrorPage(rw http.ResponseWriter, code int, title string, 
 }
 
 func (f *ForwardAuth) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
-	switch path := req.URL.Path; {
+	r, err := redirectBase(req).Parse(req.Header.Get("X-Forwarded-Uri"))
+	if err != nil {
+		log.Error(err)
+	}
+
+	switch path := r.Path; {
 	case path == f.Path:
 		f.OAuthCallback(rw, req)
 	default:
