@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 	"time"
 
 	"traefik-forward-auth/logging"
@@ -61,9 +62,14 @@ func main() {
 		Path: fmt.Sprintf("/%s", *path),
 
 		provider: providers.New(&providers.ProviderData{
-			ProviderName: "Google",
-			ClientID:     *clientId,
-			ClientSecret: *clientSecret,
+			ProviderName:      "Google",
+			ClientID:          *clientId,
+			ClientSecret:      *clientSecret,
+			LoginURL:          &url.URL{},
+			RedeemURL:         &url.URL{},
+			ProfileURL:        &url.URL{},
+			ProtectedResource: &url.URL{},
+			ValidateURL:       &url.URL{},
 		}),
 
 		CookieName:     *cookieName,
