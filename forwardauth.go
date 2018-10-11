@@ -212,11 +212,10 @@ func (f *ForwardAuth) Authenticate(rw http.ResponseWriter, req *http.Request) in
 }
 
 func getRemoteAddr(req *http.Request) (s string) {
-	s = req.RemoteAddr
-	if req.Header.Get("X-Forwarded-For") != "" {
-		s += fmt.Sprintf(" (%q)", req.Header.Get("X-Forwarded-For"))
+	if addr := req.Header.Get("X-Forwarded-For"); addr != "" {
+		return addr
 	}
-	return
+	return req.RemoteAddr
 }
 
 func redirectBase(req *http.Request) *url.URL {
@@ -237,7 +236,6 @@ func (f *ForwardAuth) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	}
 
 	req.URL = r
-	req.RemoteAddr = getRemoteAddr(req)
 
 	switch path := req.URL.Path; {
 	case path == f.Path:
@@ -268,13 +266,13 @@ func (f *ForwardAuth) OAuthStart(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 	f.SetCSRFCookie(rw, req, nonce)
-	redirect, err := f.GetRedirect(req)
+	redirect, err := redirectBase(req).Parse(req.Header.Get("X-Forwarded-Uri"))
 	if err != nil {
 		f.ErrorPage(rw, 500, "Internal Error", err.Error())
 		return
 	}
 	redirectURI := f.GetRedirectURI(req).String()
-	http.Redirect(rw, req, f.provider.GetLoginURL(redirectURI, fmt.Sprintf("%v:%v", nonce, redirect)), 302)
+	http.Redirect(rw, req, f.provider.GetLoginURL(redirectURI, fmt.Sprintf("%v:%v", nonce, redirect.String())), 302)
 }
 
 func (f *ForwardAuth) OAuthCallback(rw http.ResponseWriter, req *http.Request) {
@@ -336,20 +334,6 @@ func (f *ForwardAuth) OAuthCallback(rw http.ResponseWriter, req *http.Request) {
 		log.Debugf("%s Permission Denied: %q is unauthorized", remoteAddr, session.Email)
 		f.ErrorPage(rw, 403, "Permission Denied", "Invalid Account")
 	}
-}
-
-func (f *ForwardAuth) GetRedirect(req *http.Request) (redirect string, err error) {
-	err = req.ParseForm()
-	if err != nil {
-		return
-	}
-
-	redirect = req.Form.Get("rd")
-	if redirect == "" || !strings.HasPrefix(redirect, "/") || strings.HasPrefix(redirect, "//") {
-		redirect = "/"
-	}
-
-	return
 }
 
 func (f *ForwardAuth) GetRedirectURI(req *http.Request) *url.URL {
