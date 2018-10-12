@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"time"
 
+	"traefik-forward-auth/cookie"
 	"traefik-forward-auth/logging"
 	"traefik-forward-auth/providers"
 
@@ -52,11 +53,11 @@ func main() {
 		return
 	}
 
-	//cipher, err := cookie.NewCipher(secretBytes(*cookieSecret))
-	//if err != nil {
-	//	log.Error(err)
-	//	return
-	//}
+	cipher, err := cookie.NewCipher(secretBytes(*cookieSecret))
+	if err != nil {
+		log.Error(err)
+		return
+	}
 
 	h := &ForwardAuth{
 		Path: fmt.Sprintf("/%s", *path),
@@ -76,8 +77,8 @@ func main() {
 		CSRFCookieName: *cSRFCookieName,
 		CookieSeed:     *cookieSecret,
 		CookieSecure:   *cookieSecure,
-		//CookieCipher:   cipher,
-		CookieExpire: time.Duration(*lifetime) * time.Second,
+		CookieCipher:   cipher,
+		CookieExpire:   time.Duration(*lifetime) * time.Second,
 
 		Validator: func(s string) bool {
 			return true
@@ -88,6 +89,6 @@ func main() {
 		SetXAuthRequest: true,
 	}
 
-	log.Notice("Listening on :4181")
+	log.Info("Listening on :4181")
 	log.Fatal(http.ListenAndServe(":4181", h))
 }

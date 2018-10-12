@@ -12,6 +12,8 @@ import (
 	"traefik-forward-auth/cookie"
 )
 
+var ErrNotImplemented = errors.New("not implemented")
+
 func (p *ProviderData) Redeem(redirectURL, code string) (s *SessionState, err error) {
 	if code == "" {
 		err = errors.New("missing code")
@@ -103,12 +105,12 @@ func (p *ProviderData) SessionFromCookie(v string, c *cookie.Cipher) (s *Session
 }
 
 func (p *ProviderData) GetEmailAddress(s *SessionState) (string, error) {
-	return "", errors.New("not implemented")
+	return "", ErrNotImplemented
 }
 
 // GetUserName returns the Account username
 func (p *ProviderData) GetUserName(s *SessionState) (string, error) {
-	return "", errors.New("not implemented")
+	return "", ErrNotImplemented
 }
 
 // ValidateGroup validates that the provided email exists in the configured provider

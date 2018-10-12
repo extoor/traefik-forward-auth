@@ -1,6 +1,7 @@
 package providers
 
 import (
+	"bytes"
 	"fmt"
 	"strconv"
 	"strings"
@@ -25,17 +26,18 @@ func (s *SessionState) IsExpired() bool {
 }
 
 func (s *SessionState) String() string {
-	o := fmt.Sprintf("Session{%s", s.accountInfo())
+	buf := bytes.NewBufferString("Session{" + s.accountInfo())
 	if s.AccessToken != "" {
-		o += " token:true"
+		buf.WriteString(" token:true")
 	}
 	if !s.ExpiresOn.IsZero() {
-		o += fmt.Sprintf(" expires:%s", s.ExpiresOn)
+		buf.WriteString(" expires:" + s.ExpiresOn.String())
 	}
 	if s.RefreshToken != "" {
-		o += " refresh_token:true"
+		buf.WriteString(" refresh_token:true")
 	}
-	return o + "}"
+	buf.WriteString("}")
+	return buf.String()
 }
 
 func (s *SessionState) EncodeSessionState(c *cookie.Cipher) (string, error) {

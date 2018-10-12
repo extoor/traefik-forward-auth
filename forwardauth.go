@@ -53,10 +53,11 @@ func (f *ForwardAuth) MakeCSRFCookie(req *http.Request, value string, expiration
 func (f *ForwardAuth) makeCookie(req *http.Request, name string, value string, expiration time.Duration, now time.Time) *http.Cookie {
 	domain := redirectBase(req).Host
 
+	if h, _, err := net.SplitHostPort(domain); err == nil {
+		domain = h
+	}
+
 	if f.CookieDomain != "" {
-		if h, _, err := net.SplitHostPort(domain); err == nil {
-			domain = h
-		}
 		if !strings.HasSuffix(domain, f.CookieDomain) {
 			log.Warningf("Request host is %q but using configured cookie domain of %q", domain, f.CookieDomain)
 		}
@@ -133,7 +134,7 @@ func (f *ForwardAuth) Authenticate(rw http.ResponseWriter, req *http.Request) in
 
 	session, sessionAge, err := f.LoadCookiedSession(req)
 	if err != nil {
-		log.Errorf("%s %s", remoteAddr, err)
+		log.Debugf("%s %s", remoteAddr, err)
 	}
 	if session != nil && sessionAge > f.CookieRefresh && f.CookieRefresh != time.Duration(0) {
 		log.Debugf("%s refreshing %s old session cookie for %s (refresh after %s)", remoteAddr, sessionAge, session, f.CookieRefresh)
@@ -235,13 +236,17 @@ func (f *ForwardAuth) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		log.Error(err)
 	}
 
-	req.URL = r
+	forwardedRequest := &http.Request{
+		Method: req.Method,
+		URL:    r,
+		Header: req.Header,
+	}
 
-	switch path := req.URL.Path; {
+	switch path := forwardedRequest.URL.Path; {
 	case path == f.Path:
-		f.OAuthCallback(rw, req)
+		f.OAuthCallback(rw, forwardedRequest)
 	default:
-		f.Default(rw, req)
+		f.Default(rw, forwardedRequest)
 	}
 }
 
@@ -266,13 +271,12 @@ func (f *ForwardAuth) OAuthStart(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 	f.SetCSRFCookie(rw, req, nonce)
-	redirect, err := redirectBase(req).Parse(req.Header.Get("X-Forwarded-Uri"))
 	if err != nil {
 		f.ErrorPage(rw, 500, "Internal Error", err.Error())
 		return
 	}
 	redirectURI := f.GetRedirectURI(req).String()
-	http.Redirect(rw, req, f.provider.GetLoginURL(redirectURI, fmt.Sprintf("%v:%v", nonce, redirect.String())), 302)
+	http.Redirect(rw, req, f.provider.GetLoginURL(redirectURI, fmt.Sprintf("%v:%v", nonce, req.URL.String())), 302)
 }
 
 func (f *ForwardAuth) OAuthCallback(rw http.ResponseWriter, req *http.Request) {
@@ -290,9 +294,9 @@ func (f *ForwardAuth) OAuthCallback(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	session, err := f.redeemCode(req, req.Form.Get("code"))
+	session, err := f.redeemCode(f.GetRedirectURI(req).String(), req.Form.Get("code"))
 	if err != nil {
-		log.Infof("%s error redeeming code %s", remoteAddr, err)
+		log.Errorf("%s error redeeming code %s", remoteAddr, err)
 		f.ErrorPage(rw, 500, "Internal Error", "Internal Error")
 		return
 	}
@@ -311,18 +315,14 @@ func (f *ForwardAuth) OAuthCallback(rw http.ResponseWriter, req *http.Request) {
 	}
 	f.ClearCSRFCookie(rw, req)
 	if c.Value != nonce {
-		log.Infof("%s csrf token mismatch, potential attack", remoteAddr)
-		f.ErrorPage(rw, 403, "Permission Denied", "csrf failed")
+		log.Warningf("%s csrf token mismatch, potential attack", remoteAddr)
+		f.ErrorPage(rw, 403, "Permission Denied", "CSRF failed")
 		return
-	}
-
-	if !strings.HasPrefix(redirect, "/") || strings.HasPrefix(redirect, "//") {
-		redirect = "/"
 	}
 
 	// set cookie, or deny
 	if f.Validator(session.Email) && f.provider.ValidateGroup(session.Email) {
-		log.Debugf("%s authentication complete %s", remoteAddr, session)
+		log.Noticef("%s authentication complete %s", remoteAddr, session)
 		err := f.SaveSession(rw, req, session)
 		if err != nil {
 			log.Errorf("%s %s", remoteAddr, err)
@@ -342,12 +342,12 @@ func (f *ForwardAuth) GetRedirectURI(req *http.Request) *url.URL {
 	return u
 }
 
-func (f *ForwardAuth) redeemCode(req *http.Request, code string) (s *providers.SessionState, err error) {
+func (f *ForwardAuth) redeemCode(u string, code string) (s *providers.SessionState, err error) {
 	if code == "" {
 		return nil, errors.New("missing code")
 	}
-	redirectURI := f.GetRedirectURI(req).String()
-	s, err = f.provider.Redeem(redirectURI, code)
+
+	s, err = f.provider.Redeem(u, code)
 	if err != nil {
 		return
 	}

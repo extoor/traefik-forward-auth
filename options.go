@@ -5,7 +5,13 @@ import (
 )
 
 func addPadding(secret string) string {
-	padding := len(secret) % 4
+	l := len(secret)
+
+	if l > 32 {
+		return secret[0:32]
+	}
+
+	padding := l % 4
 	switch padding {
 	case 1:
 		return secret + "==="
@@ -20,9 +26,9 @@ func addPadding(secret string) string {
 
 // secretBytes attempts to base64 decode the secret, if that fails it treats the secret as binary
 func secretBytes(secret string) []byte {
-	b, err := base64.URLEncoding.DecodeString(addPadding(secret))
+	b, err := base64.URLEncoding.DecodeString(secret)
 	if err == nil {
-		return []byte(addPadding(string(b)))
+		secret = string(b)
 	}
-	return []byte(secret)
+	return []byte(addPadding(secret))
 }
