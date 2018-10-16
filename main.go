@@ -37,7 +37,7 @@ func main() {
 	//cookieDomainList := flag.String("cookie-domains", "", "Comma separated list of cookie domains")
 	cookieSecret := flag.String("cookie-secret", "", "*Cookie secret (required)")
 	cookieSecure := flag.Bool("cookie-secure", true, "Use secure cookies")
-	cookieEncrypt := flag.Bool("cookie-encrypt", false, "Use encrypted cookies")
+	cookieEncrypt := flag.Bool("cookie-encrypt", true, "Use encrypted cookies")
 	//authDomainList := flag.String("auth-domain", "", "Comma separated list of domains to forward auth for")
 	//domainList := flag.String("domain", "", "Comma separated list of email domains to allow")
 	//emailList := flag.String("email", "", "Comma separated list of emails to allow")
