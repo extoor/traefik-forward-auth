@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -15,8 +16,6 @@ import (
 
 type ForwardAuth struct {
 	Path string
-
-	provider providers.Provider
 
 	CookieName     string
 	CookieDomain   string
@@ -98,6 +97,9 @@ func (f *ForwardAuth) SetSessionCookie(rw http.ResponseWriter, req *http.Request
 
 func (f *ForwardAuth) LoadCookiedSession(req *http.Request) (*providers.SessionState, time.Duration, error) {
 	var age time.Duration
+
+	provider := req.Context().Value("provider").(providers.Provider)
+
 	c, err := req.Cookie(f.CookieName)
 	if err != nil {
 		// always http.ErrNoCookie
@@ -108,7 +110,7 @@ func (f *ForwardAuth) LoadCookiedSession(req *http.Request) (*providers.SessionS
 		return nil, age, errors.New("Cookie Signature not valid")
 	}
 
-	session, err := f.provider.SessionFromCookie(val, f.CookieCipher)
+	session, err := provider.SessionFromCookie(val, f.CookieCipher)
 	if err != nil {
 		return nil, age, err
 	}
@@ -118,7 +120,9 @@ func (f *ForwardAuth) LoadCookiedSession(req *http.Request) (*providers.SessionS
 }
 
 func (f *ForwardAuth) SaveSession(rw http.ResponseWriter, req *http.Request, s *providers.SessionState) error {
-	value, err := f.provider.CookieForSession(s, f.CookieCipher)
+	provider := req.Context().Value("provider").(providers.Provider)
+
+	value, err := provider.CookieForSession(s, f.CookieCipher)
 	if err != nil {
 		return err
 	}
@@ -128,7 +132,9 @@ func (f *ForwardAuth) SaveSession(rw http.ResponseWriter, req *http.Request, s *
 
 func (f *ForwardAuth) Authenticate(rw http.ResponseWriter, req *http.Request) int {
 	var saveSession, clearSession, revalidated bool
+
 	remoteAddr := getRemoteAddr(req)
+	provider := req.Context().Value("provider").(providers.Provider)
 
 	session, sessionAge, err := f.LoadCookiedSession(req)
 	if err != nil {
@@ -139,7 +145,7 @@ func (f *ForwardAuth) Authenticate(rw http.ResponseWriter, req *http.Request) in
 		saveSession = true
 	}
 
-	if ok, err := f.provider.RefreshSessionIfNeeded(session); err != nil {
+	if ok, err := provider.RefreshSessionIfNeeded(session); err != nil {
 		log.Errorf("%s removing session. error refreshing access token %s %s", remoteAddr, err, session)
 		clearSession = true
 		session = nil
@@ -156,7 +162,7 @@ func (f *ForwardAuth) Authenticate(rw http.ResponseWriter, req *http.Request) in
 	}
 
 	if saveSession && !revalidated && session != nil && session.AccessToken != "" {
-		if !f.provider.ValidateSessionState(session) {
+		if !provider.ValidateSessionState(session) {
 			log.Errorf("%s removing session. error validating %s", remoteAddr, session)
 			saveSession = false
 			session = nil
@@ -234,11 +240,13 @@ func (f *ForwardAuth) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		Header: req.Header,
 	}
 
+	ctx := context.WithValue(forwardedRequest.Context(), "provider", providers.Configured["Google"])
+
 	switch path := forwardedRequest.URL.Path; {
 	case path == f.Path:
-		f.OAuthCallback(rw, forwardedRequest)
+		f.OAuthCallback(rw, forwardedRequest.WithContext(ctx))
 	default:
-		f.Default(rw, forwardedRequest)
+		f.Default(rw, forwardedRequest.WithContext(ctx))
 	}
 }
 
@@ -257,6 +265,8 @@ func (f *ForwardAuth) SignOut(rw http.ResponseWriter, req *http.Request) {
 }
 
 func (f *ForwardAuth) OAuthStart(rw http.ResponseWriter, req *http.Request) {
+	provider := req.Context().Value("provider").(providers.Provider)
+
 	nonce, err := cookie.Nonce()
 	if err != nil {
 		f.ErrorPage(rw, 500, "Internal Error", err.Error())
@@ -268,10 +278,12 @@ func (f *ForwardAuth) OAuthStart(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 	redirectURI := f.GetRedirectURI(req).String()
-	http.Redirect(rw, req, f.provider.GetLoginURL(redirectURI, fmt.Sprintf("%v:%v", nonce, req.URL)), 302)
+	http.Redirect(rw, req, provider.GetLoginURL(redirectURI, fmt.Sprintf("%v:%v", nonce, req.URL)), 302)
 }
 
 func (f *ForwardAuth) OAuthCallback(rw http.ResponseWriter, req *http.Request) {
+	provider := req.Context().Value("provider").(providers.Provider)
+
 	remoteAddr := getRemoteAddr(req)
 
 	// finish the oauth cycle
@@ -286,7 +298,7 @@ func (f *ForwardAuth) OAuthCallback(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	session, err := f.redeemCode(f.GetRedirectURI(req).String(), req.Form.Get("code"))
+	session, err := redeemCode(f.GetRedirectURI(req).String(), req.Form.Get("code"), provider)
 	if err != nil {
 		log.Errorf("%s error redeeming code %s", remoteAddr, err)
 		f.ErrorPage(rw, 500, "Internal Error", "Internal Error")
@@ -307,13 +319,13 @@ func (f *ForwardAuth) OAuthCallback(rw http.ResponseWriter, req *http.Request) {
 	}
 	f.ClearCSRFCookie(rw, req)
 	if c.Value != nonce {
-		log.Warningf("%s csrf token mismatch, potential attack", remoteAddr)
+		log.Warningf("%s CSRF token mismatch, potential attack", remoteAddr)
 		f.ErrorPage(rw, 403, "Permission Denied", "CSRF failed")
 		return
 	}
 
 	// set cookie, or deny
-	if f.Validator(session.Email) && f.provider.ValidateGroup(session.Email) {
+	if f.Validator(session.Email) && provider.ValidateGroup(session.Email) {
 		log.Noticef("%s authentication complete %s", remoteAddr, session)
 		err := f.SaveSession(rw, req, session)
 		if err != nil {
@@ -334,22 +346,22 @@ func (f *ForwardAuth) GetRedirectURI(req *http.Request) *url.URL {
 	return u
 }
 
-func (f *ForwardAuth) redeemCode(u string, code string) (s *providers.SessionState, err error) {
+func redeemCode(u string, code string, provider providers.Provider) (s *providers.SessionState, err error) {
 	if code == "" {
 		return nil, errors.New("missing code")
 	}
 
-	s, err = f.provider.Redeem(u, code)
+	s, err = provider.Redeem(u, code)
 	if err != nil {
 		return
 	}
 
 	if s.Email == "" {
-		s.Email, err = f.provider.GetEmailAddress(s)
+		s.Email, err = provider.GetEmailAddress(s)
 	}
 
 	if s.User == "" {
-		s.User, err = f.provider.GetUserName(s)
+		s.User, err = provider.GetUserName(s)
 		if err != nil && err.Error() == "not implemented" {
 			err = nil
 		}

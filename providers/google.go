@@ -29,7 +29,7 @@ type GoogleProvider struct {
 
 func NewGoogleProvider(p *ProviderData) *GoogleProvider {
 	p.ProviderName = "Google"
-	if p.LoginURL.String() == "" {
+	if p.LoginURL == nil || p.LoginURL.String() == "" {
 		p.LoginURL = &url.URL{Scheme: "https",
 			Host: "accounts.google.com",
 			Path: "/o/oauth2/auth",
@@ -37,12 +37,12 @@ func NewGoogleProvider(p *ProviderData) *GoogleProvider {
 			RawQuery: "access_type=offline",
 		}
 	}
-	if p.RedeemURL.String() == "" {
+	if p.RedeemURL == nil || p.RedeemURL.String() == "" {
 		p.RedeemURL = &url.URL{Scheme: "https",
 			Host: "www.googleapis.com",
 			Path: "/oauth2/v3/token"}
 	}
-	if p.ValidateURL.String() == "" {
+	if p.ValidateURL == nil || p.ValidateURL.String() == "" {
 		p.ValidateURL = &url.URL{Scheme: "https",
 			Host: "www.googleapis.com",
 			Path: "/oauth2/v1/tokeninfo"}

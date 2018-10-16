@@ -5,7 +5,11 @@ import (
 	"traefik-forward-auth/logging"
 )
 
-var log = logging.GetLogger()
+var (
+	log = logging.GetLogger()
+
+	Configured map[string]Provider
+)
 
 type Provider interface {
 	Data() *ProviderData
@@ -20,6 +24,10 @@ type Provider interface {
 	CookieForSession(*SessionState, *cookie.Cipher) (string, error)
 }
 
-func New(p *ProviderData) Provider {
-	return NewGoogleProvider(p)
+func Add(p Provider) {
+	if Configured == nil {
+		Configured = make(map[string]Provider)
+	}
+
+	Configured[p.Data().ProviderName] = p
 }
