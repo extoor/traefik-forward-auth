@@ -57,8 +57,7 @@ func main() {
 	h := &ForwardAuth{
 		Path: fmt.Sprintf("/%s", *path),
 
-		provider: providers.New(&providers.ProviderData{
-			ProviderName:      "Google",
+		provider: providers.NewGoogleProvider(&providers.ProviderData{
 			ClientID:          *clientId,
 			ClientSecret:      *clientSecret,
 			LoginURL:          &url.URL{},
