@@ -37,6 +37,7 @@ func main() {
 	//cookieDomainList := flag.String("cookie-domains", "", "Comma separated list of cookie domains")
 	cookieSecret := flag.String("cookie-secret", "", "*Cookie secret (required)")
 	cookieSecure := flag.Bool("cookie-secure", true, "Use secure cookies")
+	cookieEncrypt := flag.Bool("cookie-encrypt", false, "Use encrypted cookies")
 	//authDomainList := flag.String("auth-domain", "", "Comma separated list of domains to forward auth for")
 	//domainList := flag.String("domain", "", "Comma separated list of email domains to allow")
 	//emailList := flag.String("email", "", "Comma separated list of emails to allow")
@@ -50,12 +51,6 @@ func main() {
 		return
 	}
 	if notPresent(cookieSecret, "cookie-secret must be set") {
-		return
-	}
-
-	cipher, err := cookie.NewCipher(secretBytes(*cookieSecret))
-	if err != nil {
-		log.Error(err)
 		return
 	}
 
@@ -77,16 +72,23 @@ func main() {
 		CSRFCookieName: *cSRFCookieName,
 		CookieSeed:     *cookieSecret,
 		CookieSecure:   *cookieSecure,
-		CookieCipher:   cipher,
 		CookieExpire:   time.Duration(*lifetime) * time.Second,
 
 		Validator: func(s string) bool {
 			return true
 		},
 
-		PassAccessToken: true,
-		PassUserHeaders: true,
-		SetXAuthRequest: true,
+		ForwardAccessToken: false,
+		ForwardAuthInfo:    true,
+	}
+
+	if *cookieEncrypt {
+		cipher, err := cookie.NewCipher(secretBytes(*cookieSecret))
+		if err == nil {
+			h.CookieCipher = cipher
+		} else {
+			log.Error(err)
+		}
 	}
 
 	log.Info("Listening on :4181")

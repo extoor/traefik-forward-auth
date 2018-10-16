@@ -13,7 +13,6 @@ import (
 	"traefik-forward-auth/providers"
 )
 
-// Forward Auth
 type ForwardAuth struct {
 	Path string
 
@@ -30,9 +29,8 @@ type ForwardAuth struct {
 
 	Validator func(string) bool
 
-	PassUserHeaders bool
-	SetXAuthRequest bool
-	PassAccessToken bool
+	ForwardAuthInfo    bool
+	ForwardAccessToken bool
 }
 
 func (f *ForwardAuth) MakeSessionCookie(req *http.Request, value string, expiration time.Duration, now time.Time) *http.Cookie {
@@ -189,20 +187,14 @@ func (f *ForwardAuth) Authenticate(rw http.ResponseWriter, req *http.Request) in
 		return http.StatusForbidden
 	}
 
-	if f.PassUserHeaders {
-		req.Header["X-Forwarded-User"] = []string{session.User}
+	if f.ForwardAuthInfo {
+		rw.Header().Set("X-Auth-User", session.User)
 		if session.Email != "" {
-			req.Header["X-Forwarded-Email"] = []string{session.Email}
+			rw.Header().Set("X-Auth-Email", session.Email)
 		}
 	}
-	if f.SetXAuthRequest {
-		rw.Header().Set("X-Auth-Request-User", session.User)
-		if session.Email != "" {
-			rw.Header().Set("X-Auth-Request-Email", session.Email)
-		}
-	}
-	if f.PassAccessToken && session.AccessToken != "" {
-		req.Header["X-Forwarded-Access-Token"] = []string{session.AccessToken}
+	if f.ForwardAccessToken && session.AccessToken != "" {
+		rw.Header().Set("X-Auth-Access-Token", session.AccessToken)
 	}
 	if session.Email == "" {
 		rw.Header().Set("GAP-Auth", session.User)
@@ -276,7 +268,7 @@ func (f *ForwardAuth) OAuthStart(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 	redirectURI := f.GetRedirectURI(req).String()
-	http.Redirect(rw, req, f.provider.GetLoginURL(redirectURI, fmt.Sprintf("%v:%v", nonce, req.URL.String())), 302)
+	http.Redirect(rw, req, f.provider.GetLoginURL(redirectURI, fmt.Sprintf("%v:%v", nonce, req.URL)), 302)
 }
 
 func (f *ForwardAuth) OAuthCallback(rw http.ResponseWriter, req *http.Request) {
