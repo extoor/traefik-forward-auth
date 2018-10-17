@@ -10,7 +10,7 @@ import (
 
 var (
 	Path               = flag.String("url-path", "_oauth", "Callback URL")
-	CookieExpire       = flag.Int("lifetime", 43200, "Session length in seconds")
+	CookieExpire       = flag.Int("cookie-expire", 43200, "Session length in seconds")
 	googleClientID     = flag.String("google-client-id", "", "Google Client ID (required)")
 	googleClientSecret = flag.String("google-client-secret", "", "Google Client Secret (required)")
 	CookieName         = flag.String("cookie-name", "_forward_auth", "Cookie Name")

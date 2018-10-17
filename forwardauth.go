@@ -1,14 +1,15 @@
 package main
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"net/url"
+	"path/filepath"
 	"strings"
 	"time"
+	"traefik-forward-auth/utils"
 
 	"traefik-forward-auth/cookie"
 	"traefik-forward-auth/providers"
@@ -48,7 +49,7 @@ func (f *ForwardAuth) MakeCSRFCookie(req *http.Request, value string, expiration
 }
 
 func (f *ForwardAuth) makeCookie(req *http.Request, name string, value string, expiration time.Duration, now time.Time) *http.Cookie {
-	domain := redirectBase(req).Host
+	domain := req.URL.Host
 
 	if h, _, err := net.SplitHostPort(domain); err == nil {
 		domain = h
@@ -86,7 +87,7 @@ func (f *ForwardAuth) ClearSessionCookie(rw http.ResponseWriter, req *http.Reque
 	// ugly hack because default domain changed
 	if f.CookieDomain == "" {
 		clr2 := *clr
-		clr2.Domain = redirectBase(req).Host
+		clr2.Domain = req.URL.Host
 		http.SetCookie(rw, &clr2)
 	}
 }
@@ -98,8 +99,6 @@ func (f *ForwardAuth) SetSessionCookie(rw http.ResponseWriter, req *http.Request
 func (f *ForwardAuth) LoadCookiedSession(req *http.Request) (*providers.SessionState, time.Duration, error) {
 	var age time.Duration
 
-	provider := req.Context().Value("provider").(providers.Provider)
-
 	c, err := req.Cookie(f.CookieName)
 	if err != nil {
 		// always http.ErrNoCookie
@@ -110,7 +109,7 @@ func (f *ForwardAuth) LoadCookiedSession(req *http.Request) (*providers.SessionS
 		return nil, age, errors.New("Cookie Signature not valid")
 	}
 
-	session, err := provider.SessionFromCookie(val, f.CookieCipher)
+	session, err := providerFromCtx(req).SessionFromCookie(val, f.CookieCipher)
 	if err != nil {
 		return nil, age, err
 	}
@@ -120,9 +119,7 @@ func (f *ForwardAuth) LoadCookiedSession(req *http.Request) (*providers.SessionS
 }
 
 func (f *ForwardAuth) SaveSession(rw http.ResponseWriter, req *http.Request, s *providers.SessionState) error {
-	provider := req.Context().Value("provider").(providers.Provider)
-
-	value, err := provider.CookieForSession(s, f.CookieCipher)
+	value, err := providerFromCtx(req).CookieForSession(s, f.CookieCipher)
 	if err != nil {
 		return err
 	}
@@ -133,8 +130,8 @@ func (f *ForwardAuth) SaveSession(rw http.ResponseWriter, req *http.Request, s *
 func (f *ForwardAuth) Authenticate(rw http.ResponseWriter, req *http.Request) int {
 	var saveSession, clearSession, revalidated bool
 
-	remoteAddr := getRemoteAddr(req)
-	provider := req.Context().Value("provider").(providers.Provider)
+	remoteAddr := utils.GetRemoteAddr(req)
+	provider := providerFromCtx(req)
 
 	session, sessionAge, err := f.LoadCookiedSession(req)
 	if err != nil {
@@ -210,44 +207,8 @@ func (f *ForwardAuth) Authenticate(rw http.ResponseWriter, req *http.Request) in
 	return http.StatusAccepted
 }
 
-func getRemoteAddr(req *http.Request) (s string) {
-	if addr := req.Header.Get("X-Forwarded-For"); addr != "" {
-		return addr
-	}
-	return req.RemoteAddr
-}
-
-func redirectBase(req *http.Request) *url.URL {
-	return &url.URL{
-		Scheme: req.Header.Get("X-Forwarded-Proto"),
-		Host:   req.Header.Get("X-Forwarded-Host"),
-	}
-}
-
 func (f *ForwardAuth) ErrorPage(rw http.ResponseWriter, code int, title string, message string) {
 	http.Error(rw, message, code)
-}
-
-func (f *ForwardAuth) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
-	r, err := redirectBase(req).Parse(req.Header.Get("X-Forwarded-Uri"))
-	if err != nil {
-		log.Error(err)
-	}
-
-	forwardedRequest := &http.Request{
-		Method: req.Method,
-		URL:    r,
-		Header: req.Header,
-	}
-
-	ctx := context.WithValue(forwardedRequest.Context(), "provider", providers.Configured["Google"])
-
-	switch path := forwardedRequest.URL.Path; {
-	case path == f.Path:
-		f.OAuthCallback(rw, forwardedRequest.WithContext(ctx))
-	default:
-		f.Default(rw, forwardedRequest.WithContext(ctx))
-	}
 }
 
 func (f *ForwardAuth) Default(rw http.ResponseWriter, req *http.Request) {
@@ -265,8 +226,6 @@ func (f *ForwardAuth) SignOut(rw http.ResponseWriter, req *http.Request) {
 }
 
 func (f *ForwardAuth) OAuthStart(rw http.ResponseWriter, req *http.Request) {
-	provider := req.Context().Value("provider").(providers.Provider)
-
 	nonce, err := cookie.Nonce()
 	if err != nil {
 		f.ErrorPage(rw, 500, "Internal Error", err.Error())
@@ -277,14 +236,13 @@ func (f *ForwardAuth) OAuthStart(rw http.ResponseWriter, req *http.Request) {
 		f.ErrorPage(rw, 500, "Internal Error", err.Error())
 		return
 	}
-	redirectURI := f.GetRedirectURI(req).String()
-	http.Redirect(rw, req, provider.GetLoginURL(redirectURI, fmt.Sprintf("%v:%v", nonce, req.URL)), 302)
+	redirectURI := f.makeCallbackURL(req).String()
+	http.Redirect(rw, req, providerFromCtx(req).GetLoginURL(redirectURI, fmt.Sprintf("%v:%v", nonce, req.URL)), 302)
 }
 
 func (f *ForwardAuth) OAuthCallback(rw http.ResponseWriter, req *http.Request) {
-	provider := req.Context().Value("provider").(providers.Provider)
-
-	remoteAddr := getRemoteAddr(req)
+	remoteAddr := utils.GetRemoteAddr(req)
+	provider := providerFromCtx(req)
 
 	// finish the oauth cycle
 	err := req.ParseForm()
@@ -298,7 +256,7 @@ func (f *ForwardAuth) OAuthCallback(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	session, err := redeemCode(f.GetRedirectURI(req).String(), req.Form.Get("code"), provider)
+	session, err := redeemCode(f.makeCallbackURL(req).String(), req.Form.Get("code"), provider)
 	if err != nil {
 		log.Errorf("%s error redeeming code %s", remoteAddr, err)
 		f.ErrorPage(rw, 500, "Internal Error", "Internal Error")
@@ -340,9 +298,9 @@ func (f *ForwardAuth) OAuthCallback(rw http.ResponseWriter, req *http.Request) {
 	}
 }
 
-func (f *ForwardAuth) GetRedirectURI(req *http.Request) *url.URL {
-	u := redirectBase(req)
-	u.Path = f.Path
+func (f *ForwardAuth) makeCallbackURL(req *http.Request) *url.URL {
+	u := utils.ForwardedBaseURL(req)
+	u.Path = filepath.Join(f.Path, "callback", providerFromCtx(req).Data().ProviderName)
 	return u
 }
 
@@ -367,4 +325,8 @@ func redeemCode(u string, code string, provider providers.Provider) (s *provider
 		}
 	}
 	return
+}
+
+func providerFromCtx(req *http.Request) providers.Provider {
+	return req.Context().Value("provider").(providers.Provider)
 }
