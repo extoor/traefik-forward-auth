@@ -27,7 +27,7 @@ type GoogleProvider struct {
 	GroupValidator func(string) bool
 }
 
-func NewGoogleProvider(p *ProviderData) *GoogleProvider {
+func NewGoogleProvider(p *ProviderData) Provider {
 	p.ProviderName = "google"
 	if p.LoginURL == nil || p.LoginURL.String() == "" {
 		p.LoginURL = &url.URL{Scheme: "https",
@@ -62,7 +62,6 @@ func NewGoogleProvider(p *ProviderData) *GoogleProvider {
 }
 
 func emailFromIdToken(idToken string) (string, error) {
-
 	// id_token is a base64 encode ID token payload
 	// https://developers.google.com/accounts/docs/OAuth2Login#obtainuserinfo
 	jwt := strings.Split(idToken, ".")

@@ -2,6 +2,7 @@ package main
 
 import (
 	"net/http"
+	"path"
 	"time"
 
 	cfg "traefik-forward-auth/config"
@@ -9,7 +10,7 @@ import (
 	"traefik-forward-auth/logging"
 	. "traefik-forward-auth/middleware"
 
-	"github.com/gorilla/pat"
+	"github.com/dimfeld/httptreemux"
 )
 
 var log = logging.GetLogger()
@@ -20,7 +21,7 @@ func main() {
 	}
 
 	auth := &ForwardAuth{
-		Path: "/" + *cfg.Path,
+		Path: path.Clean("/" + *cfg.Path),
 
 		CookieName:     *cfg.CookieName,
 		CSRFCookieName: *cfg.CSRFCookieName,
@@ -45,10 +46,16 @@ func main() {
 		}
 	}
 
-	router := pat.New()
-	router.Get(auth.Path+"/callback/{provider}", SetProvider(auth.OAuthCallback))
-	router.PathPrefix("/").HandlerFunc(Login(auth.Default))
+	mux := httptreemux.NewContextMux()
+	mux.NotFoundHandler = AuthHandler(auth.Default).Login
+
+	authMux := mux.NewGroup(auth.Path)
+	authMux.GET("/callback/:provider", AuthHandler(auth.OAuthCallback).SetProvider)
+
+	serverMux := httptreemux.NewContextMux()
+	serverMux.GET("/", ForwardRequest(mux).ServeHTTP)
+	serverMux.GET("/auth/:provider", ForwardRequest(mux).ServeHTTP)
 
 	log.Info("Listening on :4181")
-	log.Fatal(http.ListenAndServe(":4181", ForwardRequest(router)))
+	log.Fatal(http.ListenAndServe(":4181", serverMux))
 }

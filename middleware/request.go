@@ -2,15 +2,41 @@ package middleware
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 
+	cfg "traefik-forward-auth/config"
 	"traefik-forward-auth/logging"
 	"traefik-forward-auth/providers"
 	"traefik-forward-auth/utils"
+
+	"github.com/dimfeld/httptreemux"
 )
 
 var log = logging.GetLogger()
+
+type AuthHandler http.HandlerFunc
+
+func (f AuthHandler) SetProvider(rw http.ResponseWriter, req *http.Request) {
+	name := httptreemux.ContextParams(req.Context())["provider"]
+	provider, found := cfg.AliveProviders.Get(name)
+	if !found {
+		log.Errorf(`provider "%s" is not configured`, name)
+		http.Error(rw, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		return
+	}
+
+	f(rw, AddProviderContext(req, provider))
+}
+
+func (f AuthHandler) Login(rw http.ResponseWriter, req *http.Request) {
+	provider, ok := req.Context().Value("defaultProvider").(providers.Provider)
+	if ok {
+		f(rw, AddProviderContext(req, provider))
+		return
+	}
+
+	http.Error(rw, "Login ...", http.StatusUnauthorized)
+}
 
 func ForwardRequest(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
@@ -27,30 +53,26 @@ func ForwardRequest(next http.Handler) http.Handler {
 			Header: req.Header,
 		}
 
-		next.ServeHTTP(rw, r)
-	})
-}
+		name, ok := httptreemux.ContextParams(req.Context())["provider"]
+		if ok {
+			provider, found := cfg.AliveProviders.Get(name)
+			if !found {
+				log.Errorf(`provider "%s" is not configured`, name)
+				http.Error(rw, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+				return
+			}
 
-func SetProvider(f http.HandlerFunc) http.HandlerFunc {
-	return func(rw http.ResponseWriter, req *http.Request) {
-		name := req.URL.Query().Get(":provider")
-		provider, found := providers.Configured[name]
-		if !found {
-			http.Error(rw, fmt.Sprintf(`Provider "%s" is not configured`, name), http.StatusNotFound)
+			ctx := context.WithValue(r.Context(), "defaultProvider", provider)
+			next.ServeHTTP(rw, r.WithContext(ctx))
+
 			return
 		}
 
-		f(rw, AddProviderContext(req, provider))
-	}
+		next.ServeHTTP(rw, r)
+	})
 }
 
 func AddProviderContext(req *http.Request, p providers.Provider) *http.Request {
 	ctx := context.WithValue(req.Context(), "provider", p)
 	return req.WithContext(ctx)
-}
-
-func Login(f http.HandlerFunc) http.HandlerFunc {
-	return func(rw http.ResponseWriter, req *http.Request) {
-		f(rw, AddProviderContext(req, providers.Configured["google"]))
-	}
 }
