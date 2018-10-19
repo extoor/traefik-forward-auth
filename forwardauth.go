@@ -127,7 +127,7 @@ func (f *ForwardAuth) SaveSession(rw http.ResponseWriter, req *http.Request, s *
 	return nil
 }
 
-func (f *ForwardAuth) Authenticate(rw http.ResponseWriter, req *http.Request) int {
+func (f *ForwardAuth) authenticate(rw http.ResponseWriter, req *http.Request) int {
 	var saveSession, clearSession, revalidated bool
 
 	remoteAddr := utils.GetRemoteAddr(req)
@@ -212,7 +212,7 @@ func (f *ForwardAuth) ErrorPage(rw http.ResponseWriter, code int, title string, 
 }
 
 func (f *ForwardAuth) Default(rw http.ResponseWriter, req *http.Request) {
-	status := f.Authenticate(rw, req)
+	status := f.authenticate(rw, req)
 	if status == http.StatusInternalServerError {
 		f.ErrorPage(rw, http.StatusInternalServerError, "Internal Error", "Internal Error")
 	} else if status == http.StatusForbidden {
