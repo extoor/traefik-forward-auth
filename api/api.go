@@ -5,22 +5,21 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
-	"traefik-forward-auth/logging"
 
 	"github.com/bitly/go-simplejson"
 )
 
-var log = logging.GetLogger()
+//var log = logging.GetLogger()
 
 func Request(req *http.Request) (*simplejson.Json, error) {
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		log.Errorf("%s %s %s", req.Method, req.URL, err)
+		//log.Errorf("%s %s %s", req.Method, req.URL, err)
 		return nil, err
 	}
 	body, err := ioutil.ReadAll(resp.Body)
 	resp.Body.Close()
-	log.Debugf("%d %s %s %s", resp.StatusCode, req.Method, req.URL, body)
+	//log.Debugf("%d %s %s %s", resp.StatusCode, req.Method, req.URL, body)
 	if err != nil {
 		return nil, err
 	}
@@ -37,12 +36,12 @@ func Request(req *http.Request) (*simplejson.Json, error) {
 func RequestJson(req *http.Request, v interface{}) error {
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		log.Errorf("%s %s %s", req.Method, req.URL, err)
+		//log.Errorf("%s %s %s", req.Method, req.URL, err)
 		return err
 	}
 	body, err := ioutil.ReadAll(resp.Body)
 	resp.Body.Close()
-	log.Debugf("%d %s %s %s", resp.StatusCode, req.Method, req.URL, body)
+	//log.Debugf("%d %s %s %s", resp.StatusCode, req.Method, req.URL, body)
 	if err != nil {
 		return err
 	}
