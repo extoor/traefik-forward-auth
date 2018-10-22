@@ -117,7 +117,7 @@ func (p *GitHubProvider) hasOrg(accessToken string) (bool, error) {
 		presentOrgs = append(presentOrgs, org.Login)
 	}
 
-	log.Debugf("Missing Organization:%q in %v", p.Org, presentOrgs)
+	log.Debugf("Missing Organization: %q in %v", p.Org, presentOrgs)
 	return false, nil
 }
 
@@ -235,7 +235,7 @@ func (p *GitHubProvider) GetEmailAddress(s *SessionState) (string, error) {
 			resp.StatusCode, endpoint.String(), body)
 	}
 
-	log.Debugf("got %d from %q %s", resp.StatusCode, endpoint.String(), body)
+	//log.Debugf("got %d from %q %s", resp.StatusCode, endpoint.String(), body)
 
 	if err := json.Unmarshal(body, &emails); err != nil {
 		return "", fmt.Errorf("%s unmarshaling %s", err, body)
@@ -284,7 +284,7 @@ func (p *GitHubProvider) GetUserName(s *SessionState) (string, error) {
 			resp.StatusCode, endpoint.String(), body)
 	}
 
-	log.Debugf("got %d from %q %s", resp.StatusCode, endpoint.String(), body)
+	//log.Debugf("got %d from %q %s", resp.StatusCode, endpoint.String(), body)
 
 	if err := json.Unmarshal(body, &user); err != nil {
 		return "", fmt.Errorf("%s unmarshaling %s", err, body)
