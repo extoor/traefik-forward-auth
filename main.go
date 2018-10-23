@@ -1,5 +1,7 @@
 package main
 
+//go:generate statik -src=./login/template
+
 import (
 	"net/http"
 	"path"

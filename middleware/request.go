@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"net/http"
+	"traefik-forward-auth/login"
 
 	cfg "traefik-forward-auth/config"
 	"traefik-forward-auth/logging"
@@ -35,7 +36,7 @@ func (f AuthHandler) Login(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	http.Error(rw, "Login ...", http.StatusUnauthorized)
+	login.DefaultPage(rw, req)
 }
 
 func ForwardRequest(next http.Handler) http.Handler {
