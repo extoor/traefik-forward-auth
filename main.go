@@ -10,6 +10,7 @@ import (
 	cfg "traefik-forward-auth/config"
 	"traefik-forward-auth/cookie"
 	"traefik-forward-auth/logging"
+	"traefik-forward-auth/login"
 	. "traefik-forward-auth/middleware"
 
 	"github.com/dimfeld/httptreemux"
@@ -37,6 +38,8 @@ func main() {
 
 		ForwardAccessToken: false,
 		ForwardAuthInfo:    true,
+
+		LoginPage: login.DefaultPage,
 	}
 
 	if *cfg.CookieEncrypt {
@@ -49,14 +52,15 @@ func main() {
 	}
 
 	mux := httptreemux.NewContextMux()
-	mux.NotFoundHandler = AuthHandler(auth.Default).Login
+	mux.NotFoundHandler = AuthHandler(auth.Login).SetDefaultProvider
 
 	authMux := mux.NewGroup(auth.Path)
+	authMux.GET("/login/:provider", AuthHandler(auth.Login).SetProvider)
 	authMux.GET("/callback/:provider", AuthHandler(auth.OAuthCallback).SetProvider)
 
 	serverMux := httptreemux.NewContextMux()
-	serverMux.GET("/", ForwardRequest(mux).ServeHTTP)
-	serverMux.GET("/auth/:provider", ForwardRequest(mux).ServeHTTP)
+	serverMux.GET("/", NewForwardRequest(mux).ServeHTTP)
+	serverMux.GET("/auth/:provider", NewForwardRequest(mux).ServeHTTP)
 
 	log.Info("Listening on :4181")
 	log.Fatal(http.ListenAndServe(":4181", serverMux))

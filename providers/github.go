@@ -18,7 +18,7 @@ type GitHubProvider struct {
 }
 
 func NewGitHubProvider(p *ProviderData) Provider {
-	p.ProviderName = "github"
+	p.Name = "GitHub"
 	if p.LoginURL == nil || p.LoginURL.String() == "" {
 		p.LoginURL = &url.URL{
 			Scheme: "https",

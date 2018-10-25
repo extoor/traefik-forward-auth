@@ -12,12 +12,12 @@ import (
 func testGitLabProvider(hostname string) *GitLabProvider {
 	p := NewGitLabProvider(
 		&ProviderData{
-			ProviderName: "",
-			LoginURL:     &url.URL{},
-			RedeemURL:    &url.URL{},
-			ProfileURL:   &url.URL{},
-			ValidateURL:  &url.URL{},
-			Scope:        ""})
+			Name:        "",
+			LoginURL:    &url.URL{},
+			RedeemURL:   &url.URL{},
+			ProfileURL:  &url.URL{},
+			ValidateURL: &url.URL{},
+			Scope:       ""})
 	if hostname != "" {
 		updateURL(p.Data().LoginURL, hostname)
 		updateURL(p.Data().RedeemURL, hostname)
@@ -46,7 +46,7 @@ func testGitLabBackend(payload string) *httptest.Server {
 func TestGitLabProviderDefaults(t *testing.T) {
 	p := testGitLabProvider("")
 	assert.NotEqual(t, nil, p)
-	assert.Equal(t, "GitLab", p.Data().ProviderName)
+	assert.Equal(t, "GitLab", p.Data().Name)
 	assert.Equal(t, "https://gitlab.com/oauth/authorize",
 		p.Data().LoginURL.String())
 	assert.Equal(t, "https://gitlab.com/oauth/token",
@@ -73,7 +73,7 @@ func TestGitLabProviderOverrides(t *testing.T) {
 				Path:   "/api/v4/user"},
 			Scope: "profile"})
 	assert.NotEqual(t, nil, p)
-	assert.Equal(t, "GitLab", p.Data().ProviderName)
+	assert.Equal(t, "GitLab", p.Data().Name)
 	assert.Equal(t, "https://example.com/oauth/auth",
 		p.Data().LoginURL.String())
 	assert.Equal(t, "https://example.com/oauth/token",

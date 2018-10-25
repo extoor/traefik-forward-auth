@@ -12,7 +12,7 @@ type GitLabProvider struct {
 }
 
 func NewGitLabProvider(p *ProviderData) Provider {
-	p.ProviderName = "gitlab"
+	p.Name = "GitLab"
 	if p.LoginURL == nil || p.LoginURL.String() == "" {
 		p.LoginURL = &url.URL{
 			Scheme: "https",

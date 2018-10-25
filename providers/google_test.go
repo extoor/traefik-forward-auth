@@ -22,18 +22,18 @@ func newRedeemServer(body []byte) (*url.URL, *httptest.Server) {
 func newGoogleProvider() *GoogleProvider {
 	return NewGoogleProvider(
 		&ProviderData{
-			ProviderName: "",
-			LoginURL:     &url.URL{},
-			RedeemURL:    &url.URL{},
-			ProfileURL:   &url.URL{},
-			ValidateURL:  &url.URL{},
-			Scope:        ""})
+			Name:        "",
+			LoginURL:    &url.URL{},
+			RedeemURL:   &url.URL{},
+			ProfileURL:  &url.URL{},
+			ValidateURL: &url.URL{},
+			Scope:       ""})
 }
 
 func TestGoogleProviderDefaults(t *testing.T) {
 	p := newGoogleProvider()
 	assert.NotEqual(t, nil, p)
-	assert.Equal(t, "Google", p.Data().ProviderName)
+	assert.Equal(t, "Google", p.Data().Name)
 	assert.Equal(t, "https://accounts.google.com/o/oauth2/auth?access_type=offline",
 		p.Data().LoginURL.String())
 	assert.Equal(t, "https://www.googleapis.com/oauth2/v3/token",
@@ -65,7 +65,7 @@ func TestGoogleProviderOverrides(t *testing.T) {
 				Path:   "/oauth/tokeninfo"},
 			Scope: "profile"})
 	assert.NotEqual(t, nil, p)
-	assert.Equal(t, "Google", p.Data().ProviderName)
+	assert.Equal(t, "Google", p.Data().Name)
 	assert.Equal(t, "https://example.com/oauth/auth",
 		p.Data().LoginURL.String())
 	assert.Equal(t, "https://example.com/oauth/token",

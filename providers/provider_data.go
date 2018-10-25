@@ -5,7 +5,7 @@ import (
 )
 
 type ProviderData struct {
-	ProviderName      string
+	Name              string
 	ClientID          string
 	ClientSecret      string
 	LoginURL          *url.URL

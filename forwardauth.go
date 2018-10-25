@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -9,10 +10,11 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-	"traefik-forward-auth/utils"
 
 	"traefik-forward-auth/cookie"
+	"traefik-forward-auth/login"
 	"traefik-forward-auth/providers"
+	"traefik-forward-auth/utils"
 )
 
 type ForwardAuth struct {
@@ -31,6 +33,8 @@ type ForwardAuth struct {
 
 	ForwardAuthInfo    bool
 	ForwardAccessToken bool
+
+	LoginPage http.HandlerFunc
 }
 
 func (f *ForwardAuth) MakeSessionCookie(req *http.Request, value string, expiration time.Duration, now time.Time) *http.Cookie {
@@ -109,7 +113,7 @@ func (f *ForwardAuth) LoadCookiedSession(req *http.Request) (*providers.SessionS
 		return nil, age, errors.New("Cookie Signature not valid")
 	}
 
-	session, err := providerFromCtx(req).SessionFromCookie(val, f.CookieCipher)
+	session, err := utils.ProviderFromCtx(req).SessionFromCookie(val, f.CookieCipher)
 	if err != nil {
 		return nil, age, err
 	}
@@ -119,7 +123,7 @@ func (f *ForwardAuth) LoadCookiedSession(req *http.Request) (*providers.SessionS
 }
 
 func (f *ForwardAuth) SaveSession(rw http.ResponseWriter, req *http.Request, s *providers.SessionState) error {
-	value, err := providerFromCtx(req).CookieForSession(s, f.CookieCipher)
+	value, err := utils.ProviderFromCtx(req).CookieForSession(s, f.CookieCipher)
 	if err != nil {
 		return err
 	}
@@ -131,7 +135,6 @@ func (f *ForwardAuth) authenticate(rw http.ResponseWriter, req *http.Request) in
 	var saveSession, clearSession, revalidated bool
 
 	remoteAddr := utils.GetRemoteAddr(req)
-	provider := providerFromCtx(req)
 
 	session, sessionAge, err := f.LoadCookiedSession(req)
 	if err != nil {
@@ -140,6 +143,12 @@ func (f *ForwardAuth) authenticate(rw http.ResponseWriter, req *http.Request) in
 	if session != nil && sessionAge > f.CookieRefresh && f.CookieRefresh != time.Duration(0) {
 		log.Debugf("%s refreshing %s old session cookie for %s (refresh after %s)", remoteAddr, sessionAge, session, f.CookieRefresh)
 		saveSession = true
+	}
+
+	provider := utils.ProviderFromCtx(req)
+	if provider == nil {
+		log.Critical("context: provider not found")
+		return http.StatusInternalServerError
 	}
 
 	if ok, err := provider.RefreshSessionIfNeeded(session); err != nil {
@@ -207,17 +216,28 @@ func (f *ForwardAuth) authenticate(rw http.ResponseWriter, req *http.Request) in
 	return http.StatusAccepted
 }
 
-func (f *ForwardAuth) ErrorPage(rw http.ResponseWriter, code int, title string, message string) {
-	http.Error(rw, message, code)
+func (f *ForwardAuth) error(rw http.ResponseWriter, req *http.Request, err *login.Error) {
+	if err != nil {
+		ctx := context.WithValue(req.Context(), "error", err)
+		f.LoginPage(rw, req.WithContext(ctx))
+		return
+	}
+
+	f.LoginPage(rw, req)
 }
 
-func (f *ForwardAuth) Default(rw http.ResponseWriter, req *http.Request) {
+func (f *ForwardAuth) Login(rw http.ResponseWriter, req *http.Request) {
 	status := f.authenticate(rw, req)
-	if status == http.StatusInternalServerError {
-		f.ErrorPage(rw, http.StatusInternalServerError, "Internal Error", "Internal Error")
-	} else if status == http.StatusForbidden {
+	switch status {
+	case http.StatusInternalServerError:
+		f.error(rw, req, login.InternalServerError())
+		return
+	case http.StatusForbidden:
 		f.OAuthStart(rw, req)
+		return
 	}
+
+	rw.WriteHeader(status)
 }
 
 func (f *ForwardAuth) SignOut(rw http.ResponseWriter, req *http.Request) {
@@ -228,57 +248,53 @@ func (f *ForwardAuth) SignOut(rw http.ResponseWriter, req *http.Request) {
 func (f *ForwardAuth) OAuthStart(rw http.ResponseWriter, req *http.Request) {
 	nonce, err := cookie.Nonce()
 	if err != nil {
-		f.ErrorPage(rw, 500, "Internal Error", err.Error())
+		f.error(rw, req, login.InternalError(err))
 		return
 	}
 	f.SetCSRFCookie(rw, req, nonce)
-	if err != nil {
-		f.ErrorPage(rw, 500, "Internal Error", err.Error())
-		return
-	}
 	redirectURI := f.makeCallbackURL(req).String()
-	http.Redirect(rw, req, providerFromCtx(req).GetLoginURL(redirectURI, fmt.Sprintf("%v:%v", nonce, req.URL)), 302)
+	http.Redirect(rw, req, utils.ProviderFromCtx(req).GetLoginURL(redirectURI, fmt.Sprintf("%v:%v", nonce, req.URL)), 302)
 }
 
 func (f *ForwardAuth) OAuthCallback(rw http.ResponseWriter, req *http.Request) {
 	remoteAddr := utils.GetRemoteAddr(req)
-	provider := providerFromCtx(req)
+	provider := utils.ProviderFromCtx(req)
 
 	// finish the oauth cycle
 	err := req.ParseForm()
 	if err != nil {
-		f.ErrorPage(rw, 500, "Internal Error", err.Error())
+		f.error(rw, req, login.InternalError(err))
 		return
 	}
 	errorString := req.Form.Get("error")
 	if errorString != "" {
-		f.ErrorPage(rw, 403, "Permission Denied", errorString)
+		f.error(rw, req, &login.Error{Code: http.StatusForbidden, Message: errorString})
 		return
 	}
 
 	session, err := redeemCode(f.makeCallbackURL(req).String(), req.Form.Get("code"), provider)
 	if err != nil {
 		log.Errorf("%s error redeeming code %s", remoteAddr, err)
-		f.ErrorPage(rw, 500, "Internal Error", "Internal Error")
+		f.error(rw, req, login.InternalServerError())
 		return
 	}
 
 	s := strings.SplitN(req.Form.Get("state"), ":", 2)
 	if len(s) != 2 {
-		f.ErrorPage(rw, 500, "Internal Error", "Invalid State")
+		f.error(rw, req, login.InternalErrorString("Invalid State"))
 		return
 	}
 	nonce := s[0]
 	redirect := s[1]
 	c, err := req.Cookie(f.CSRFCookieName)
 	if err != nil {
-		f.ErrorPage(rw, 403, "Permission Denied", err.Error())
+		f.error(rw, req, &login.Error{Code: http.StatusForbidden, Message: err.Error()})
 		return
 	}
 	f.ClearCSRFCookie(rw, req)
 	if c.Value != nonce {
 		log.Warningf("%s CSRF token mismatch, potential attack", remoteAddr)
-		f.ErrorPage(rw, 403, "Permission Denied", "CSRF failed")
+		f.error(rw, req, &login.Error{Code: http.StatusForbidden, Message: "CSRF failed"})
 		return
 	}
 
@@ -288,19 +304,19 @@ func (f *ForwardAuth) OAuthCallback(rw http.ResponseWriter, req *http.Request) {
 		err := f.SaveSession(rw, req, session)
 		if err != nil {
 			log.Errorf("%s %s", remoteAddr, err)
-			f.ErrorPage(rw, 500, "Internal Error", "Internal Error")
+			f.error(rw, req, login.InternalServerError())
 			return
 		}
 		http.Redirect(rw, req, redirect, 302)
 	} else {
 		log.Debugf("%s Permission Denied: %q is unauthorized", remoteAddr, session.Email)
-		f.ErrorPage(rw, 403, "Permission Denied", "Invalid Account")
+		f.error(rw, req, &login.Error{Code: http.StatusForbidden, Message: "Invalid Account"})
 	}
 }
 
 func (f *ForwardAuth) makeCallbackURL(req *http.Request) *url.URL {
 	u := utils.ForwardedBaseURL(req)
-	u.Path = filepath.Join(f.Path, "callback", providerFromCtx(req).Data().ProviderName)
+	u.Path = filepath.Join(f.Path, "callback", utils.ProviderFromCtx(req).Data().Name)
 	return u
 }
 
@@ -325,8 +341,4 @@ func redeemCode(u string, code string, provider providers.Provider) (s *provider
 		}
 	}
 	return
-}
-
-func providerFromCtx(req *http.Request) providers.Provider {
-	return req.Context().Value("provider").(providers.Provider)
 }

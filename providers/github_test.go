@@ -12,12 +12,12 @@ import (
 func testGitHubProvider(hostname string) *GitHubProvider {
 	p := NewGitHubProvider(
 		&ProviderData{
-			ProviderName: "",
-			LoginURL:     &url.URL{},
-			RedeemURL:    &url.URL{},
-			ProfileURL:   &url.URL{},
-			ValidateURL:  &url.URL{},
-			Scope:        ""})
+			Name:        "",
+			LoginURL:    &url.URL{},
+			RedeemURL:   &url.URL{},
+			ProfileURL:  &url.URL{},
+			ValidateURL: &url.URL{},
+			Scope:       ""})
 	if hostname != "" {
 		updateURL(p.Data().LoginURL, hostname)
 		updateURL(p.Data().RedeemURL, hostname)
@@ -60,7 +60,7 @@ func testGitHubBackend(payload []string) *httptest.Server {
 func TestGitHubProviderDefaults(t *testing.T) {
 	p := testGitHubProvider("")
 	assert.NotEqual(t, nil, p)
-	assert.Equal(t, "GitHub", p.Data().ProviderName)
+	assert.Equal(t, "GitHub", p.Data().Name)
 	assert.Equal(t, "https://github.com/login/oauth/authorize",
 		p.Data().LoginURL.String())
 	assert.Equal(t, "https://github.com/login/oauth/access_token",
@@ -87,7 +87,7 @@ func TestGitHubProviderOverrides(t *testing.T) {
 				Path:   "/"},
 			Scope: "profile"})
 	assert.NotEqual(t, nil, p)
-	assert.Equal(t, "GitHub", p.Data().ProviderName)
+	assert.Equal(t, "GitHub", p.Data().Name)
 	assert.Equal(t, "https://example.com/login/oauth/authorize",
 		p.Data().LoginURL.String())
 	assert.Equal(t, "https://example.com/login/oauth/access_token",

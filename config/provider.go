@@ -2,6 +2,7 @@ package config
 
 import (
 	"net/url"
+	"strings"
 
 	"traefik-forward-auth/providers"
 )
@@ -9,7 +10,7 @@ import (
 type Providers map[string]providers.Provider
 
 func (ps Providers) Add(p providers.Provider) {
-	ps[p.Data().ProviderName] = p
+	ps[strings.ToLower(p.Data().Name)] = p
 }
 
 func (ps Providers) IsEmpty() bool {

@@ -3,8 +3,6 @@ package middleware
 import (
 	"context"
 	"net/http"
-	"traefik-forward-auth/login"
-
 	cfg "traefik-forward-auth/config"
 	"traefik-forward-auth/logging"
 	"traefik-forward-auth/providers"
@@ -29,17 +27,17 @@ func (f AuthHandler) SetProvider(rw http.ResponseWriter, req *http.Request) {
 	f(rw, AddProviderContext(req, provider))
 }
 
-func (f AuthHandler) Login(rw http.ResponseWriter, req *http.Request) {
+func (f AuthHandler) SetDefaultProvider(rw http.ResponseWriter, req *http.Request) {
 	provider, ok := req.Context().Value("defaultProvider").(providers.Provider)
 	if ok {
 		f(rw, AddProviderContext(req, provider))
 		return
 	}
 
-	login.DefaultPage(rw, req)
+	f(rw, req)
 }
 
-func ForwardRequest(next http.Handler) http.Handler {
+func NewForwardRequest(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
 		u, err := utils.ForwardedBaseURL(req).Parse(req.Header.Get("X-Forwarded-Uri"))
 		if err != nil {
