@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"net/http"
+
 	cfg "traefik-forward-auth/config"
 	"traefik-forward-auth/logging"
 	"traefik-forward-auth/providers"
@@ -24,13 +25,13 @@ func (f AuthHandler) SetProvider(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	f(rw, AddProviderContext(req, provider))
+	f(rw, utils.AddProviderContext(req, provider))
 }
 
 func (f AuthHandler) SetDefaultProvider(rw http.ResponseWriter, req *http.Request) {
 	provider, ok := req.Context().Value("defaultProvider").(providers.Provider)
 	if ok {
-		f(rw, AddProviderContext(req, provider))
+		f(rw, utils.AddProviderContext(req, provider))
 		return
 	}
 
@@ -69,9 +70,4 @@ func NewForwardRequest(next http.Handler) http.Handler {
 
 		next.ServeHTTP(rw, r)
 	})
-}
-
-func AddProviderContext(req *http.Request, p providers.Provider) *http.Request {
-	ctx := context.WithValue(req.Context(), "provider", p)
-	return req.WithContext(ctx)
 }

@@ -5,6 +5,7 @@ import (
 	"net/url"
 
 	"traefik-forward-auth/api"
+	"traefik-forward-auth/session"
 )
 
 type GitLabProvider struct {
@@ -40,7 +41,7 @@ func NewGitLabProvider(p *ProviderData) Provider {
 	return &GitLabProvider{ProviderData: p}
 }
 
-func (p *GitLabProvider) GetEmailAddress(s *SessionState) (string, error) {
+func (p *GitLabProvider) GetEmailAddress(s *session.State) (string, error) {
 	req, err := http.NewRequest("GET",
 		p.ValidateURL.String()+"?access_token="+s.AccessToken, nil)
 	if err != nil {

@@ -23,6 +23,17 @@ func main() {
 		log.Fatal(err)
 	}
 
+	sess := &cookie.Session{}
+
+	if *cfg.CookieEncrypt {
+		cipher, err := cookie.NewCipher(secretBytes(*cfg.CookieSecret))
+		if err == nil {
+			sess.Cipher = cipher
+		} else {
+			log.Error(err)
+		}
+	}
+
 	auth := &ForwardAuth{
 		Path: path.Clean("/" + *cfg.Path),
 
@@ -39,20 +50,13 @@ func main() {
 		ForwardAccessToken: false,
 		ForwardAuthInfo:    true,
 
-		LoginPage: login.DefaultPage,
-	}
-
-	if *cfg.CookieEncrypt {
-		cipher, err := cookie.NewCipher(secretBytes(*cfg.CookieSecret))
-		if err == nil {
-			auth.CookieCipher = cipher
-		} else {
-			log.Error(err)
-		}
+		LoginPage:      login.DefaultPage,
+		SessionHandler: sess,
 	}
 
 	mux := httptreemux.NewContextMux()
 	mux.NotFoundHandler = AuthHandler(auth.Login).SetDefaultProvider
+	mux.GET("/favicon.ico", accepted)
 
 	authMux := mux.NewGroup(auth.Path)
 	authMux.GET("/login/:provider", AuthHandler(auth.Login).SetProvider)

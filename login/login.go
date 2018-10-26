@@ -4,6 +4,7 @@ import (
 	"html/template"
 	"net/http"
 	"path"
+	"sort"
 
 	"github.com/Masterminds/sprig"
 
@@ -20,10 +21,32 @@ var (
 	log           = logging.GetLogger()
 )
 
+type Providers []providers.Provider
+
+func (s Providers) Len() int           { return len(s) }
+func (s Providers) Swap(i, j int)      { s[i], s[j] = s[j], s[i] }
+func (s Providers) Less(i, j int) bool { return s[i].Data().Name < s[j].Data().Name }
+
 type tplContext struct {
-	Providers []providers.Provider
+	Providers Providers
 	Error     *Error
 	Prefix    string
+}
+
+func (t *tplContext) SetProviders(ps cfg.Providers) {
+	t.Providers = make(Providers, len(ps))
+
+	idx := 0
+	for _, p := range ps {
+		t.Providers[idx] = p
+		idx++
+	}
+
+	sort.Sort(t.Providers)
+}
+
+func (t *tplContext) AddProvider(p providers.Provider) {
+	t.Providers = append(t.Providers, p)
 }
 
 func initTemplate() *template.Template {
@@ -48,15 +71,13 @@ func DefaultPage(rw http.ResponseWriter, req *http.Request) {
 
 	ctx := tplContext{
 		Error:  err,
-		Prefix: path.Join(path.Clean("/"+*cfg.Path), "login"),
+		Prefix: path.Join(path.Clean("/"+*cfg.Path), "login/"),
 	}
 
 	if p := utils.ProviderFromCtx(req); p != nil {
-		ctx.Providers = append(ctx.Providers, p)
+		ctx.AddProvider(p)
 	} else {
-		for _, p := range cfg.AliveProviders {
-			ctx.Providers = append(ctx.Providers, p)
-		}
+		ctx.SetProviders(cfg.AliveProviders)
 	}
 
 	loginTemplate.Execute(rw, ctx)

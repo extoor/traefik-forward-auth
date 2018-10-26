@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -11,9 +12,11 @@ import (
 	"strings"
 	"time"
 
+	cfg "traefik-forward-auth/config"
 	"traefik-forward-auth/cookie"
 	"traefik-forward-auth/login"
 	"traefik-forward-auth/providers"
+	"traefik-forward-auth/session"
 	"traefik-forward-auth/utils"
 )
 
@@ -25,7 +28,6 @@ type ForwardAuth struct {
 	CSRFCookieName string
 	CookieSeed     string
 	CookieSecure   bool
-	CookieCipher   *cookie.Cipher
 	CookieExpire   time.Duration
 	CookieRefresh  time.Duration
 
@@ -34,11 +36,12 @@ type ForwardAuth struct {
 	ForwardAuthInfo    bool
 	ForwardAccessToken bool
 
-	LoginPage http.HandlerFunc
+	LoginPage      http.HandlerFunc
+	SessionHandler session.Session
 }
 
-func (f *ForwardAuth) MakeSessionCookie(req *http.Request, value string, expiration time.Duration, now time.Time) *http.Cookie {
-	if value != "" {
+func (f *ForwardAuth) MakeSessionCookie(req *http.Request, value []byte, expiration time.Duration, now time.Time) *http.Cookie {
+	if !bytes.Equal(value, []byte("{}")) {
 		value = cookie.SignedValue(f.CookieSeed, f.CookieName, value, now)
 		if len(value) > 4096 {
 			// Cookies cannot be larger than 4kb
@@ -48,11 +51,11 @@ func (f *ForwardAuth) MakeSessionCookie(req *http.Request, value string, expirat
 	return f.makeCookie(req, f.CookieName, value, expiration, now)
 }
 
-func (f *ForwardAuth) MakeCSRFCookie(req *http.Request, value string, expiration time.Duration, now time.Time) *http.Cookie {
+func (f *ForwardAuth) MakeCSRFCookie(req *http.Request, value []byte, expiration time.Duration, now time.Time) *http.Cookie {
 	return f.makeCookie(req, f.CSRFCookieName, value, expiration, now)
 }
 
-func (f *ForwardAuth) makeCookie(req *http.Request, name string, value string, expiration time.Duration, now time.Time) *http.Cookie {
+func (f *ForwardAuth) makeCookie(req *http.Request, name string, value []byte, expiration time.Duration, now time.Time) *http.Cookie {
 	domain := req.URL.Host
 
 	if h, _, err := net.SplitHostPort(domain); err == nil {
@@ -67,7 +70,7 @@ func (f *ForwardAuth) makeCookie(req *http.Request, name string, value string, e
 
 	return &http.Cookie{
 		Name:     name,
-		Value:    value,
+		Value:    string(value),
 		Path:     "/",
 		Domain:   domain,
 		HttpOnly: true,
@@ -77,15 +80,15 @@ func (f *ForwardAuth) makeCookie(req *http.Request, name string, value string, e
 }
 
 func (f *ForwardAuth) ClearCSRFCookie(rw http.ResponseWriter, req *http.Request) {
-	http.SetCookie(rw, f.MakeCSRFCookie(req, "", time.Hour*-1, time.Now()))
+	http.SetCookie(rw, f.MakeCSRFCookie(req, []byte{}, time.Hour*-1, time.Now()))
 }
 
-func (f *ForwardAuth) SetCSRFCookie(rw http.ResponseWriter, req *http.Request, val string) {
+func (f *ForwardAuth) SetCSRFCookie(rw http.ResponseWriter, req *http.Request, val []byte) {
 	http.SetCookie(rw, f.MakeCSRFCookie(req, val, f.CookieExpire, time.Now()))
 }
 
 func (f *ForwardAuth) ClearSessionCookie(rw http.ResponseWriter, req *http.Request) {
-	clr := f.MakeSessionCookie(req, "", time.Hour*-1, time.Now())
+	clr := f.MakeSessionCookie(req, []byte{}, time.Hour*-1, time.Now())
 	http.SetCookie(rw, clr)
 
 	// ugly hack because default domain changed
@@ -96,34 +99,36 @@ func (f *ForwardAuth) ClearSessionCookie(rw http.ResponseWriter, req *http.Reque
 	}
 }
 
-func (f *ForwardAuth) SetSessionCookie(rw http.ResponseWriter, req *http.Request, val string) {
+func (f *ForwardAuth) SetSessionCookie(rw http.ResponseWriter, req *http.Request, val []byte) {
 	http.SetCookie(rw, f.MakeSessionCookie(req, val, f.CookieExpire, time.Now()))
 }
 
-func (f *ForwardAuth) LoadCookiedSession(req *http.Request) (*providers.SessionState, time.Duration, error) {
+func (f *ForwardAuth) LoadCookiedSession(req *http.Request) (*session.State, time.Duration, error) {
 	var age time.Duration
 
 	c, err := req.Cookie(f.CookieName)
 	if err != nil {
 		// always http.ErrNoCookie
-		return nil, age, fmt.Errorf("Cookie %q not present", f.CookieName)
+		return nil, age, fmt.Errorf(`cookie "%s" not present`, f.CookieName)
 	}
 	val, timestamp, ok := cookie.Validate(c, f.CookieSeed, f.CookieExpire)
 	if !ok {
-		return nil, age, errors.New("Cookie Signature not valid")
+		return nil, age, errors.New("cookie Signature not valid")
 	}
 
-	session, err := utils.ProviderFromCtx(req).SessionFromCookie(val, f.CookieCipher)
+	sess, err := f.SessionHandler.SessionFromCookie(val)
 	if err != nil {
 		return nil, age, err
 	}
 
 	age = time.Now().Truncate(time.Second).Sub(timestamp)
-	return session, age, nil
+	return sess, age, nil
 }
 
-func (f *ForwardAuth) SaveSession(rw http.ResponseWriter, req *http.Request, s *providers.SessionState) error {
-	value, err := utils.ProviderFromCtx(req).CookieForSession(s, f.CookieCipher)
+func (f *ForwardAuth) SaveSession(rw http.ResponseWriter, req *http.Request, s *session.State) error {
+	s.Provider = strings.ToLower(utils.ProviderFromCtx(req).Data().Name)
+
+	value, err := f.SessionHandler.CookieForSession(s)
 	if err != nil {
 		return err
 	}
@@ -135,56 +140,70 @@ func (f *ForwardAuth) authenticate(rw http.ResponseWriter, req *http.Request) in
 	var saveSession, clearSession, revalidated bool
 
 	remoteAddr := utils.GetRemoteAddr(req)
+	provider := utils.ProviderFromCtx(req)
 
-	session, sessionAge, err := f.LoadCookiedSession(req)
+	sess, sessionAge, err := f.LoadCookiedSession(req)
 	if err != nil {
 		log.Debugf("%s %s", remoteAddr, err)
+
+		if provider == nil {
+			return http.StatusUnauthorized
+		}
 	}
-	if session != nil && sessionAge > f.CookieRefresh && f.CookieRefresh != time.Duration(0) {
-		log.Debugf("%s refreshing %s old session cookie for %s (refresh after %s)", remoteAddr, sessionAge, session, f.CookieRefresh)
+	if sess != nil && sessionAge > f.CookieRefresh && f.CookieRefresh != time.Duration(0) {
+		log.Debugf("%s refreshing %s old sess cookie for %s (refresh after %s)", remoteAddr, sessionAge, sess, f.CookieRefresh)
 		saveSession = true
 	}
 
-	provider := utils.ProviderFromCtx(req)
-	if provider == nil {
-		log.Critical("context: provider not found")
-		return http.StatusInternalServerError
+	if sess != nil {
+		sessionProvider, _ := cfg.AliveProviders.Get(sess.Provider)
+
+		switch {
+		case provider == nil && sessionProvider != nil:
+			provider = sessionProvider
+		case provider == nil && sessionProvider == nil:
+			log.Criticalf(`%s session: provider "%s" is not configured`, remoteAddr, sess.Provider)
+			return http.StatusInternalServerError
+		case provider != sessionProvider:
+			log.Errorf(`%s bad session provider "%s"`, remoteAddr, sess.Provider)
+			return http.StatusBadRequest
+		}
 	}
 
-	if ok, err := provider.RefreshSessionIfNeeded(session); err != nil {
-		log.Errorf("%s removing session. error refreshing access token %s %s", remoteAddr, err, session)
+	if ok, err := provider.RefreshSessionIfNeeded(sess); err != nil {
+		log.Errorf("%s removing sess. error refreshing access token %s %s", remoteAddr, err, sess)
 		clearSession = true
-		session = nil
+		sess = nil
 	} else if ok {
 		saveSession = true
 		revalidated = true
 	}
 
-	if session != nil && session.IsExpired() {
-		log.Debugf("%s removing session. token expired %s", remoteAddr, session)
-		session = nil
+	if sess != nil && sess.IsExpired() {
+		log.Debugf("%s removing sess. token expired %s", remoteAddr, sess)
+		sess = nil
 		saveSession = false
 		clearSession = true
 	}
 
-	if saveSession && !revalidated && session != nil && session.AccessToken != "" {
-		if !provider.ValidateSessionState(session) {
-			log.Errorf("%s removing session. error validating %s", remoteAddr, session)
+	if saveSession && !revalidated && sess != nil && sess.AccessToken != "" {
+		if !provider.ValidateSessionState(sess) {
+			log.Errorf("%s removing sess. error validating %s", remoteAddr, sess)
 			saveSession = false
-			session = nil
+			sess = nil
 			clearSession = true
 		}
 	}
 
-	if session != nil && session.Email != "" && !f.Validator(session.Email) {
-		log.Debugf("%s Permission Denied: removing session %s", remoteAddr, session)
-		session = nil
+	if sess != nil && sess.Email != "" && !f.Validator(sess.Email) {
+		log.Debugf("%s Permission Denied: removing sess %s", remoteAddr, sess)
+		sess = nil
 		saveSession = false
 		clearSession = true
 	}
 
-	if saveSession && session != nil {
-		err := f.SaveSession(rw, req, session)
+	if saveSession && sess != nil {
+		err := f.SaveSession(rw, req, sess)
 		if err != nil {
 			log.Errorf("%s %s", remoteAddr, err)
 			return http.StatusInternalServerError
@@ -195,23 +214,23 @@ func (f *ForwardAuth) authenticate(rw http.ResponseWriter, req *http.Request) in
 		f.ClearSessionCookie(rw, req)
 	}
 
-	if session == nil {
+	if sess == nil {
 		return http.StatusForbidden
 	}
 
 	if f.ForwardAuthInfo {
-		rw.Header().Set("X-Auth-User", session.User)
-		if session.Email != "" {
-			rw.Header().Set("X-Auth-Email", session.Email)
+		rw.Header().Set("X-Auth-User", sess.User)
+		if sess.Email != "" {
+			rw.Header().Set("X-Auth-Email", sess.Email)
 		}
 	}
-	if f.ForwardAccessToken && session.AccessToken != "" {
-		rw.Header().Set("X-Auth-Access-Token", session.AccessToken)
+	if f.ForwardAccessToken && sess.AccessToken != "" {
+		rw.Header().Set("X-Auth-Access-Token", sess.AccessToken)
 	}
-	if session.Email == "" {
-		rw.Header().Set("GAP-Auth", session.User)
+	if sess.Email == "" {
+		rw.Header().Set("GAP-Auth", sess.User)
 	} else {
-		rw.Header().Set("GAP-Auth", session.Email)
+		rw.Header().Set("GAP-Auth", sess.Email)
 	}
 	return http.StatusAccepted
 }
@@ -235,6 +254,9 @@ func (f *ForwardAuth) Login(rw http.ResponseWriter, req *http.Request) {
 	case http.StatusForbidden:
 		f.OAuthStart(rw, req)
 		return
+	case http.StatusUnauthorized:
+		f.LoginPage(rw, req)
+		return
 	}
 
 	rw.WriteHeader(status)
@@ -251,7 +273,7 @@ func (f *ForwardAuth) OAuthStart(rw http.ResponseWriter, req *http.Request) {
 		f.error(rw, req, login.InternalError(err))
 		return
 	}
-	f.SetCSRFCookie(rw, req, nonce)
+	f.SetCSRFCookie(rw, req, []byte(nonce))
 	redirectURI := f.makeCallbackURL(req).String()
 	http.Redirect(rw, req, utils.ProviderFromCtx(req).GetLoginURL(redirectURI, fmt.Sprintf("%v:%v", nonce, req.URL)), 302)
 }
@@ -272,7 +294,7 @@ func (f *ForwardAuth) OAuthCallback(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	session, err := redeemCode(f.makeCallbackURL(req).String(), req.Form.Get("code"), provider)
+	sess, err := redeemCode(f.makeCallbackURL(req).String(), req.Form.Get("code"), provider)
 	if err != nil {
 		log.Errorf("%s error redeeming code %s", remoteAddr, err)
 		f.error(rw, req, login.InternalServerError())
@@ -299,9 +321,9 @@ func (f *ForwardAuth) OAuthCallback(rw http.ResponseWriter, req *http.Request) {
 	}
 
 	// set cookie, or deny
-	if f.Validator(session.Email) && provider.ValidateGroup(session.Email) {
-		log.Noticef("%s authentication complete %s", remoteAddr, session)
-		err := f.SaveSession(rw, req, session)
+	if f.Validator(sess.Email) && provider.ValidateGroup(sess.Email) {
+		log.Noticef("%s authentication complete %s", remoteAddr, sess)
+		err := f.SaveSession(rw, req, sess)
 		if err != nil {
 			log.Errorf("%s %s", remoteAddr, err)
 			f.error(rw, req, login.InternalServerError())
@@ -309,18 +331,18 @@ func (f *ForwardAuth) OAuthCallback(rw http.ResponseWriter, req *http.Request) {
 		}
 		http.Redirect(rw, req, redirect, 302)
 	} else {
-		log.Debugf("%s Permission Denied: %q is unauthorized", remoteAddr, session.Email)
+		log.Debugf("%s Permission Denied: %q is unauthorized", remoteAddr, sess.Email)
 		f.error(rw, req, &login.Error{Code: http.StatusForbidden, Message: "Invalid Account"})
 	}
 }
 
 func (f *ForwardAuth) makeCallbackURL(req *http.Request) *url.URL {
 	u := utils.ForwardedBaseURL(req)
-	u.Path = filepath.Join(f.Path, "callback", utils.ProviderFromCtx(req).Data().Name)
+	u.Path = filepath.Join(f.Path, "callback", strings.ToLower(utils.ProviderFromCtx(req).Data().Name))
 	return u
 }
 
-func redeemCode(u string, code string, provider providers.Provider) (s *providers.SessionState, err error) {
+func redeemCode(u string, code string, provider providers.Provider) (s *session.State, err error) {
 	if code == "" {
 		return nil, errors.New("missing code")
 	}

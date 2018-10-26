@@ -9,6 +9,8 @@ import (
 	"path"
 	"strconv"
 	"strings"
+
+	"traefik-forward-auth/session"
 )
 
 type GitHubProvider struct {
@@ -193,7 +195,7 @@ func (p *GitHubProvider) hasOrgAndTeam(accessToken string) (bool, error) {
 	return false, nil
 }
 
-func (p *GitHubProvider) GetEmailAddress(s *SessionState) (string, error) {
+func (p *GitHubProvider) GetEmailAddress(s *session.State) (string, error) {
 
 	var emails []struct {
 		Email   string `json:"email"`
@@ -250,7 +252,7 @@ func (p *GitHubProvider) GetEmailAddress(s *SessionState) (string, error) {
 	return "", nil
 }
 
-func (p *GitHubProvider) GetUserName(s *SessionState) (string, error) {
+func (p *GitHubProvider) GetUserName(s *session.State) (string, error) {
 	var user struct {
 		Login string `json:"login"`
 		Email string `json:"email"`

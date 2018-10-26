@@ -1,21 +1,19 @@
 package providers
 
 import (
-	"traefik-forward-auth/cookie"
 	"traefik-forward-auth/logging"
+	"traefik-forward-auth/session"
 )
 
 var log = logging.GetLogger()
 
 type Provider interface {
 	Data() *ProviderData
-	GetEmailAddress(*SessionState) (string, error)
-	GetUserName(*SessionState) (string, error)
-	Redeem(string, string) (*SessionState, error)
+	GetEmailAddress(*session.State) (string, error)
+	GetUserName(*session.State) (string, error)
+	Redeem(string, string) (*session.State, error)
 	ValidateGroup(string) bool
-	ValidateSessionState(*SessionState) bool
+	ValidateSessionState(*session.State) bool
 	GetLoginURL(redirectURI, finalRedirect string) string
-	RefreshSessionIfNeeded(*SessionState) (bool, error)
-	SessionFromCookie(string, *cookie.Cipher) (*SessionState, error)
-	CookieForSession(*SessionState, *cookie.Cipher) (string, error)
+	RefreshSessionIfNeeded(*session.State) (bool, error)
 }

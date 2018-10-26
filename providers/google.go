@@ -13,6 +13,8 @@ import (
 	"strings"
 	"time"
 
+	"traefik-forward-auth/session"
+
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/admin/directory/v1"
@@ -88,7 +90,7 @@ func emailFromIdToken(idToken string) (string, error) {
 	return email.Email, nil
 }
 
-func (p *GoogleProvider) Redeem(redirectURL, code string) (s *SessionState, err error) {
+func (p *GoogleProvider) Redeem(redirectURL, code string) (s *session.State, err error) {
 	if code == "" {
 		err = errors.New("missing code")
 		return
@@ -138,12 +140,13 @@ func (p *GoogleProvider) Redeem(redirectURL, code string) (s *SessionState, err 
 	if err != nil {
 		return
 	}
-	s = &SessionState{
+	s = &session.State{
 		AccessToken:  jsonResponse.AccessToken,
 		ExpiresOn:    time.Now().Add(time.Duration(jsonResponse.ExpiresIn) * time.Second).Truncate(time.Second),
 		RefreshToken: jsonResponse.RefreshToken,
-		Email:        email,
 	}
+	s.Email = email
+
 	return
 }
 
@@ -219,7 +222,7 @@ func fetchUser(service *admin.Service, email string) (*admin.User, error) {
 }
 
 func fetchGroupMembers(service *admin.Service, group string) ([]*admin.Member, error) {
-	members := []*admin.Member{}
+	var members []*admin.Member
 	pageToken := ""
 	for {
 		req := service.Members.List(group)
@@ -247,7 +250,7 @@ func (p *GoogleProvider) ValidateGroup(email string) bool {
 	return p.GroupValidator(email)
 }
 
-func (p *GoogleProvider) RefreshSessionIfNeeded(s *SessionState) (bool, error) {
+func (p *GoogleProvider) RefreshSessionIfNeeded(s *session.State) (bool, error) {
 	if s == nil || s.ExpiresOn.After(time.Now()) || s.RefreshToken == "" {
 		return false, nil
 	}

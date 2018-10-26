@@ -9,12 +9,12 @@ import (
 	"net/http"
 	"net/url"
 
-	"traefik-forward-auth/cookie"
+	"traefik-forward-auth/session"
 )
 
 var ErrNotImplemented = errors.New("not implemented")
 
-func (p *ProviderData) Redeem(redirectURL, code string) (s *SessionState, err error) {
+func (p *ProviderData) Redeem(redirectURL, code string) (s *session.State, err error) {
 	if code == "" {
 		err = errors.New("missing code")
 		return
@@ -60,7 +60,7 @@ func (p *ProviderData) Redeem(redirectURL, code string) (s *SessionState, err er
 	}
 	err = json.Unmarshal(body, &jsonResponse)
 	if err == nil {
-		s = &SessionState{
+		s = &session.State{
 			AccessToken: jsonResponse.AccessToken,
 		}
 		return
@@ -72,7 +72,7 @@ func (p *ProviderData) Redeem(redirectURL, code string) (s *SessionState, err er
 		return
 	}
 	if a := v.Get("access_token"); a != "" {
-		s = &SessionState{AccessToken: a}
+		s = &session.State{AccessToken: a}
 	} else {
 		err = fmt.Errorf("no access token found %s", body)
 	}
@@ -94,22 +94,12 @@ func (p *ProviderData) GetLoginURL(redirectURI, state string) string {
 	return a.String()
 }
 
-// CookieForSession serializes a session state for storage in a cookie
-func (p *ProviderData) CookieForSession(s *SessionState, c *cookie.Cipher) (string, error) {
-	return s.EncodeSessionState(c)
-}
-
-// SessionFromCookie deserializes a session from a cookie value
-func (p *ProviderData) SessionFromCookie(v string, c *cookie.Cipher) (s *SessionState, err error) {
-	return DecodeSessionState(v, c)
-}
-
-func (p *ProviderData) GetEmailAddress(s *SessionState) (string, error) {
+func (p *ProviderData) GetEmailAddress(s *session.State) (string, error) {
 	return "", ErrNotImplemented
 }
 
 // GetUserName returns the Account username
-func (p *ProviderData) GetUserName(s *SessionState) (string, error) {
+func (p *ProviderData) GetUserName(s *session.State) (string, error) {
 	return "", ErrNotImplemented
 }
 
@@ -119,11 +109,11 @@ func (p *ProviderData) ValidateGroup(email string) bool {
 	return true
 }
 
-func (p *ProviderData) ValidateSessionState(s *SessionState) bool {
+func (p *ProviderData) ValidateSessionState(s *session.State) bool {
 	return validateToken(p, s.AccessToken, nil)
 }
 
 // RefreshSessionIfNeeded
-func (p *ProviderData) RefreshSessionIfNeeded(s *SessionState) (bool, error) {
+func (p *ProviderData) RefreshSessionIfNeeded(s *session.State) (bool, error) {
 	return false, nil
 }
