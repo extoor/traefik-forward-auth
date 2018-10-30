@@ -2,6 +2,7 @@ package cookie
 
 import (
 	"errors"
+
 	"traefik-forward-auth/session"
 
 	"github.com/json-iterator/go"
@@ -16,19 +17,34 @@ type Session struct {
 // CookieForSession serializes a session state for storage in a cookie
 func (s *Session) CookieForSession(state *session.State) ([]byte, error) {
 	if s.Cipher == nil || state.AccessToken == "" {
-		return encodeSessionState(&state.User)
+		return encodeSessionState(&state.Login)
 	}
 
-	return encodeSessionState(state)
+	data, err := encodeSessionState(state)
+	if err != nil {
+		return nil, err
+	}
+
+	enc, err := s.Cipher.Encrypt(data)
+	if err != nil {
+		return nil, err
+	}
+
+	return enc, nil
 }
 
 // SessionFromCookie deserializes a session from a cookie value
 func (s *Session) SessionFromCookie(v []byte) (*session.State, error) {
 	if s.Cipher == nil {
-		return decodeSessionState(v, &session.UserData{})
+		return decodeSessionState(v, &session.Login{})
 	}
 
-	return decodeSessionState(v, &session.State{})
+	data, err := s.Cipher.Decrypt(v)
+	if err != nil {
+		return nil, err
+	}
+
+	return decodeSessionState(data, &session.State{})
 }
 
 func encodeSessionState(s interface{}) ([]byte, error) {
@@ -45,8 +61,8 @@ func decodeSessionState(v []byte, s interface{}) (*session.State, error) {
 	}
 
 	switch data := s.(type) {
-	case *session.UserData:
-		return &session.State{UserData: *data}, nil
+	case *session.Login:
+		return &session.State{Login: *data}, nil
 	case *session.State:
 		return data, nil
 	}

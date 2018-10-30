@@ -54,8 +54,7 @@ func SignedValue(seed string, key string, value []byte, now time.Time) []byte {
 	encodedValue := base64.URLEncoding.EncodeToString(value)
 	timeStr := fmt.Sprintf("%d", now.Unix())
 	sig := cookieSignature(seed, key, encodedValue, timeStr)
-	cookieVal := fmt.Sprintf("%s|%s|%s", encodedValue, timeStr, sig)
-	return []byte(cookieVal)
+	return []byte(fmt.Sprintf("%s|%s|%s", encodedValue, timeStr, sig))
 }
 
 func cookieSignature(args ...string) string {
@@ -94,27 +93,27 @@ func NewCipher(secret []byte) (*Cipher, error) {
 }
 
 // Encrypt a value for use in a cookie
-func (c *Cipher) Encrypt(value string) (string, error) {
+func (c *Cipher) Encrypt(value []byte) ([]byte, error) {
 	ciphertext := make([]byte, aes.BlockSize+len(value))
 	iv := ciphertext[:aes.BlockSize]
 	if _, err := io.ReadFull(rand.Reader, iv); err != nil {
-		return "", fmt.Errorf("failed to create initialization vector %s", err)
+		return nil, fmt.Errorf("failed to create initialization vector %s", err)
 	}
 
 	stream := cipher.NewCFBEncrypter(c.Block, iv)
-	stream.XORKeyStream(ciphertext[aes.BlockSize:], []byte(value))
-	return base64.StdEncoding.EncodeToString(ciphertext), nil
+	stream.XORKeyStream(ciphertext[aes.BlockSize:], value)
+	return []byte(base64.StdEncoding.EncodeToString(ciphertext)), nil
 }
 
 // Decrypt a value from a cookie to it's original string
-func (c *Cipher) Decrypt(s string) (string, error) {
-	encrypted, err := base64.StdEncoding.DecodeString(s)
+func (c *Cipher) Decrypt(s []byte) ([]byte, error) {
+	encrypted, err := base64.StdEncoding.DecodeString(string(s))
 	if err != nil {
-		return "", fmt.Errorf("failed to decrypt cookie value %s", err)
+		return nil, fmt.Errorf("failed to decrypt cookie value %s", err)
 	}
 
 	if len(encrypted) < aes.BlockSize {
-		return "", fmt.Errorf("encrypted cookie value should be "+
+		return nil, fmt.Errorf("encrypted cookie value should be "+
 			"at least %d bytes, but is only %d bytes",
 			aes.BlockSize, len(encrypted))
 	}
@@ -124,5 +123,5 @@ func (c *Cipher) Decrypt(s string) (string, error) {
 	stream := cipher.NewCFBDecrypter(c.Block, iv)
 	stream.XORKeyStream(encrypted, encrypted)
 
-	return string(encrypted), nil
+	return encrypted, nil
 }

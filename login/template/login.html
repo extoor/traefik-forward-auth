@@ -58,7 +58,7 @@
             <h2 class="text-center text-info">Sign in</h2>
             <div class="text-center">
                 {{- range .Providers }}
-                <a href="{{ $.Prefix }}/{{ .Data.Name | lower }}" class="btn btn-block btn-social btn-{{ with $name := (.Data.Name | lower) }}{{if eq $name "gitlab"}}tumblr{{ else }}{{ $name }}{{ end }}"><span class="fa fa-{{ $name }}{{ end }}"></span>Sign in with <b>{{ .Data.Name }}</b></a>
+                <a href="{{ $.Prefix }}/{{ .Data.ID }}" class="btn btn-block btn-social btn-{{ with $name := .Data.ID }}{{if eq $name "gitlab"}}tumblr{{ else }}{{ $name }}{{ end }}"><span class="fa fa-{{ $name }}{{ end }}"></span>Sign in with <b>{{ .Data.Name }}</b></a>
                 {{- end }}
             </div>
             <div class="or-seperator"><span>or</span></div>

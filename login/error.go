@@ -12,6 +12,10 @@ func InternalError(err error) *Error {
 	return InternalErrorString(err.Error())
 }
 
+func StatusCodeError(code int) *Error {
+	return &Error{Code: code, Message: http.StatusText(code)}
+}
+
 func InternalErrorString(err string) *Error {
 	return &Error{Message: err, Code: http.StatusInternalServerError}
 }

@@ -142,10 +142,10 @@ func (p *GoogleProvider) Redeem(redirectURL, code string) (s *session.State, err
 	}
 	s = &session.State{
 		AccessToken:  jsonResponse.AccessToken,
-		ExpiresOn:    time.Now().Add(time.Duration(jsonResponse.ExpiresIn) * time.Second).Truncate(time.Second),
 		RefreshToken: jsonResponse.RefreshToken,
 	}
 	s.Email = email
+	s.ExpiresOn.Time = time.Now().Add(time.Duration(jsonResponse.ExpiresIn) * time.Second).Truncate(time.Second)
 
 	return
 }
@@ -267,7 +267,7 @@ func (p *GoogleProvider) RefreshSessionIfNeeded(s *session.State) (bool, error) 
 
 	origExpiration := s.ExpiresOn
 	s.AccessToken = newToken
-	s.ExpiresOn = time.Now().Add(duration).Truncate(time.Second)
+	s.ExpiresOn.Time = time.Now().Add(duration).Truncate(time.Second)
 	log.Debugf("refreshed access token %s (expired on %s)", s, origExpiration)
 	return true, nil
 }

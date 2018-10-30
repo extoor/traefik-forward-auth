@@ -59,6 +59,7 @@ func main() {
 	mux.GET("/favicon.ico", accepted)
 
 	authMux := mux.NewGroup(auth.Path)
+	authMux.GET("/logout", auth.SignOut)
 	authMux.GET("/login/:provider", AuthHandler(auth.Login).SetProvider)
 	authMux.GET("/callback/:provider", AuthHandler(auth.OAuthCallback).SetProvider)
 
