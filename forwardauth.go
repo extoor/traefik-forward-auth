@@ -381,7 +381,7 @@ func redeemCode(u string, code string, provider providers.Provider) (s *session.
 
 	if s.User == "" {
 		s.User, err = provider.GetUserName(s)
-		if err != nil && err.Error() == "not implemented" {
+		if err != nil && err == providers.ErrNotImplemented {
 			err = nil
 		}
 	}
