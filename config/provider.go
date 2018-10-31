@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"net/url"
 
 	"traefik-forward-auth/providers"
@@ -42,7 +43,10 @@ func (ps Providers) AddCredentials(id, secret string, f func(*providers.Provider
 	}
 }
 
-func (ps Providers) Get(name string) (p providers.Provider, ok bool) {
-	p, ok = ps[name]
-	return
+func (ps Providers) Get(name string) (providers.Provider, error) {
+	p, ok := ps[name]
+	if !ok {
+		return nil, fmt.Errorf(`provider "%s" is not configured`, name)
+	}
+	return p, nil
 }

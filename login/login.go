@@ -6,11 +6,11 @@ import (
 	"path"
 	"sort"
 
+	"traefik-forward-auth/auth"
 	cfg "traefik-forward-auth/config"
 	"traefik-forward-auth/logging"
 	"traefik-forward-auth/providers"
 	_ "traefik-forward-auth/statik"
-	"traefik-forward-auth/utils"
 
 	"github.com/Masterminds/sprig"
 	"github.com/rakyll/statik/fs"
@@ -74,8 +74,8 @@ func DefaultPage(rw http.ResponseWriter, req *http.Request) {
 		Prefix: path.Join("/"+*cfg.Path, "login"),
 	}
 
-	if p := utils.ProviderFromCtx(req); p != nil {
-		ctx.AddProvider(p)
+	if c := auth.GetContext(req); c.ProviderExists() {
+		ctx.AddProvider(c.Provider)
 	} else {
 		ctx.SetProviders(cfg.AliveProviders)
 	}

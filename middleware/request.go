@@ -4,9 +4,9 @@ import (
 	"context"
 	"net/http"
 
+	"traefik-forward-auth/auth"
 	cfg "traefik-forward-auth/config"
 	"traefik-forward-auth/logging"
-	"traefik-forward-auth/providers"
 	"traefik-forward-auth/utils"
 
 	"github.com/dimfeld/httptreemux"
@@ -14,25 +14,25 @@ import (
 
 var log = logging.GetLogger()
 
-type AuthHandler http.HandlerFunc
+type MuxHandler http.HandlerFunc
 
-func (f AuthHandler) SetProvider(rw http.ResponseWriter, req *http.Request) {
+func (f MuxHandler) SetProvider(rw http.ResponseWriter, req *http.Request) {
+	ctx := auth.GetContext(req)
+
 	name := httptreemux.ContextParams(req.Context())["provider"]
-	provider, found := cfg.AliveProviders.Get(name)
-	if !found {
-		log.Errorf(`provider "%s" is not configured`, name)
+	provider, err := cfg.AliveProviders.Get(name)
+	if err != nil {
+		log.Error(ctx.Log(err))
 		http.Error(rw, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
 
-	f(rw, utils.AddProviderContext(req, provider))
-}
-
-func (f AuthHandler) SetDefaultProvider(rw http.ResponseWriter, req *http.Request) {
-	provider, ok := req.Context().Value("defaultProvider").(providers.Provider)
-	if ok {
-		f(rw, utils.AddProviderContext(req, provider))
+	if ctx.DefaultProvider && ctx.Provider != provider {
+		log.Errorf(`request provider "%s" is not "%s"`, name, ctx.Provider.Data().ID())
+		http.Error(rw, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 		return
+	} else {
+		ctx.Provider = provider
 	}
 
 	f(rw, req)
@@ -53,21 +53,22 @@ func NewForwardRequest(next http.Handler) http.Handler {
 			Header: req.Header,
 		}
 
+		ctx := &auth.RequestContext{}
+		ctx.RemoteAddress = utils.GetRemoteAddr(r)
+
 		name, ok := httptreemux.ContextParams(req.Context())["provider"]
 		if ok {
-			provider, found := cfg.AliveProviders.Get(name)
-			if !found {
-				log.Errorf(`provider "%s" is not configured`, name)
+			provider, err := cfg.AliveProviders.Get(name)
+			if err != nil {
+				log.Error(ctx.Log(err))
 				http.Error(rw, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 				return
 			}
 
-			ctx := context.WithValue(r.Context(), "defaultProvider", provider)
-			next.ServeHTTP(rw, r.WithContext(ctx))
-
-			return
+			ctx.Provider = provider
+			ctx.DefaultProvider = true
 		}
 
-		next.ServeHTTP(rw, r)
+		next.ServeHTTP(rw, r.WithContext(context.WithValue(r.Context(), auth.ContextName, ctx)))
 	})
 }
