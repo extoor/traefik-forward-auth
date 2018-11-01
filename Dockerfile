@@ -1,21 +1,17 @@
-FROM golang:1.10-alpine as builder
+FROM golang:1.11-alpine as builder
 
-# Setup
-RUN mkdir /app
-WORKDIR /app
+ARG APP_NAME=traefik-forward-auth
+
+ADD . ${GOPATH}/src/${APP_NAME}
 
 # Add libraries
-RUN apk add --no-cache git && \
-  go get "github.com/namsral/flag" && \
-  go get "github.com/op/go-logging" && \
-  apk del git
+RUN apk add --no-cache git \
+    && go get -d -v ${APP_NAME}
 
 # Copy & build
-ADD . /app/
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix nocgo -o /traefik-forward-auth .
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix nocgo -o /traefik-forward-auth ${APP_NAME}
 
-# Copy into scratch container
-FROM scratch
-COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
-COPY --from=builder /traefik-forward-auth ./
-ENTRYPOINT ["./traefik-forward-auth"]
+FROM alpine:3.8
+RUN apk --no-cache add ca-certificates tzdata
+COPY --from=builder /traefik-forward-auth /usr/local/bin/
+ENTRYPOINT ["traefik-forward-auth"]
