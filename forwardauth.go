@@ -276,12 +276,14 @@ func (f *ForwardAuth) SignOut(rw http.ResponseWriter, req *http.Request) {
 }
 
 func (f *ForwardAuth) getRedirectURL(req *http.Request) string {
-	if strings.HasPrefix(req.URL.Path, path.Join(f.Path, "login/")) {
+	if strings.HasPrefix(req.URL.Path, f.Path) {
 		if ref := req.Referer(); ref != "" {
-			return ref
-		} else {
-			return (&url.URL{Scheme: req.URL.Scheme, Host: req.URL.Host}).String()
+			if u, err := url.Parse(ref); err == nil && !strings.HasPrefix(u.Path, f.Path) {
+				return ref
+			}
 		}
+
+		return (&url.URL{Scheme: req.URL.Scheme, Host: req.URL.Host}).String()
 	}
 
 	return req.URL.String()
