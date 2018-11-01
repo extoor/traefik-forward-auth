@@ -34,12 +34,12 @@ var (
 	CookieEncrypt  = flag.Bool("cookie-encrypt", true, "Use encrypted cookies")
 	CSRFCookieName = flag.String("csrf-cookie-name", "_forward_auth_csrf", "CSRF Cookie Name")
 
-	//cookieDomainList := flag.String("cookie-domains", "", "Comma separated list of cookie domains")
-	//authDomainList := flag.String("auth-domain", "", "Comma separated list of domains to forward auth for")
-	//domainList := flag.String("domain", "", "Comma separated list of email domains to allow")
-	//emailList := flag.String("email", "", "Comma separated list of emails to allow")
+	allowedDomain = flag.String("allowed-domain", "", `Comma separated list of email domains or "*" to allow`)
+	allowedEmail  = flag.String("allowed-email", "", `Comma separated list of emails or "*" to allow`)
 
 	AliveProviders = make(Providers)
+	Users          *Data
+	Domains        *Data
 )
 
 type (
@@ -62,6 +62,9 @@ func InitConfig() error {
 	if AliveProviders.IsEmpty() {
 		return errors.New("at least one provider must be configured")
 	}
+
+	Users = NewData(*allowedEmail)
+	Domains = NewData(*allowedDomain)
 
 	return nil
 }

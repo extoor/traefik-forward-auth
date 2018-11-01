@@ -12,6 +12,7 @@ import (
 	"traefik-forward-auth/logging"
 	"traefik-forward-auth/login"
 	. "traefik-forward-auth/middleware"
+	"traefik-forward-auth/validate"
 
 	"github.com/dimfeld/httptreemux"
 )
@@ -43,13 +44,10 @@ func main() {
 		CookieSecure:   *cfg.CookieSecure,
 		CookieExpire:   time.Duration(*cfg.CookieExpire) * time.Second,
 
-		Validator: func(s string) bool {
-			return true
-		},
-
 		ForwardAccessToken: false,
 		ForwardAuthInfo:    true,
 
+		Validator: validate.IsAllowedEmail,
 		LoginPage: login.DefaultPage,
 		Session:   sessionHandler,
 	}

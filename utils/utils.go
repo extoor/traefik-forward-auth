@@ -3,6 +3,7 @@ package utils
 import (
 	"net/http"
 	"net/url"
+	"strings"
 )
 
 func ForwardedBaseURL(req *http.Request) *url.URL {
@@ -17,4 +18,12 @@ func GetRemoteAddr(req *http.Request) string {
 		return addr
 	}
 	return req.RemoteAddr
+}
+
+func SplitEmail(email string) (user, domain string) {
+	if i := strings.IndexRune(email, '@'); i != -1 {
+		user, domain = email[:i], email[i+1:]
+	}
+
+	return
 }

@@ -301,8 +301,6 @@ func (f *ForwardAuth) OAuthStart(rw http.ResponseWriter, req *http.Request) {
 }
 
 func (f *ForwardAuth) OAuthCallback(rw http.ResponseWriter, req *http.Request) {
-	ctx := auth.GetContext(req)
-
 	// finish the oauth cycle
 	err := req.ParseForm()
 	if err != nil {
@@ -313,6 +311,8 @@ func (f *ForwardAuth) OAuthCallback(rw http.ResponseWriter, req *http.Request) {
 		f.error(rw, req, &login.Error{Code: http.StatusForbidden, Message: msg})
 		return
 	}
+
+	ctx := auth.GetContext(req)
 
 	state, err := redeemCode(f.makeCallbackURL(req), req.Form.Get("code"), ctx.Provider)
 	if err != nil {
@@ -326,8 +326,7 @@ func (f *ForwardAuth) OAuthCallback(rw http.ResponseWriter, req *http.Request) {
 		f.error(rw, req, login.InternalErrorString("Invalid State"))
 		return
 	}
-	nonce := s[0]
-	redirect := s[1]
+	nonce, redirect := s[0], s[1]
 	c, err := req.Cookie(f.CSRFCookieName)
 	if err != nil {
 		f.error(rw, req, &login.Error{Code: http.StatusForbidden, Message: err.Error()})
