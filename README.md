@@ -22,22 +22,27 @@ The following configuration is supported:
 
 |Flag                   |Type  |Description|
 |-----------------------|------|-----------|
-|-client-id|string|*Google Client ID (required)|
-|-client-secret|string|*Google Client Secret (required)|
-|-config|string|Path to config file|
-|-cookie-domains|string|Comma separated list of cookie domains|
+|-allowed-domain|string|Comma separated list of email domains or "*" to allow|
+|-allowed-email|string|Comma separated list of emails or "*" to allow|
+|-cookie-encrypt|bool|Use encrypted cookies (default true)|
+|-cookie-expire|int|Session length in seconds (default 43200)|
 |-cookie-name|string|Cookie Name (default "_forward_auth")|
-|-cookie-secret|string|*Cookie secret (required)|
+|-cookie-secret|string|Cookie secret (required)|
 |-cookie-secure|bool|Use secure cookies (default true)|
 |-csrf-cookie-name|string|CSRF Cookie Name (default "_forward_auth_csrf")|
-|-direct|bool|Run in direct mode (use own hostname as oppose to <br>X-Forwarded-Host, used for testing/development)
-|-auth-domain|string|Comma separated list of domains to check auth on (optional, defaults to all)|
-|-domain|string|Comma separated list of email domains to allow|
-|-email|string|Comma separated list of emails to allow|
-|-lifetime|int|Session length in seconds (default 43200)|
-|-url-path|string|Callback URL (default "_oauth")|
+|-github-client-id|string|GitHub client ID|
+|-github-client-secret|string|GitHub client secret|
+|-gitlab-client-id|string|GitLab client ID|
+|-gitlab-client-secret|string|GitLab client secret|
+|-gitlab-login-url|string|GitLab login URL|
+|-gitlab-redeem-url|string|GitLab redeem URL|
+|-gitlab-validate-url|string|GitLab validate URL|
+|-google-client-id|string|Google client ID|
+|-google-client-secret|string|Google client secret|
+|-path-prefix|string|OAuth prefix (default "_oauth")|
 
-Configuration can also be supplied as environment variables (use upper case and swap `-`'s for `_`'s e.g. `-client-id` becomes `CLIENT_ID`)
+
+Configuration can also be supplied as environment variables (use upper case and swap `-`'s for `_`'s e.g. `-google-client-id` becomes `GOOGLE_CLIENT_ID`)
 
 Configuration can also be supplied via a file, you can specify the location with `-config` flag, the format is `flag value` one per line, e.g. `client-id your-client-id`)
 

@@ -29,7 +29,7 @@ var (
 	//Cookie
 	CookieName     = flag.String("cookie-name", "_forward_auth", "Cookie Name")
 	CookieExpire   = flag.Int("cookie-expire", 43200, "Session length in seconds")
-	CookieSecret   = flag.String("cookie-secret", "", "*Cookie secret (required)")
+	CookieSecret   = flag.String("cookie-secret", "", "Cookie secret (required)")
 	CookieSecure   = flag.Bool("cookie-secure", true, "Use secure cookies")
 	CookieEncrypt  = flag.Bool("cookie-encrypt", true, "Use encrypted cookies")
 	CSRFCookieName = flag.String("csrf-cookie-name", "_forward_auth_csrf", "CSRF Cookie Name")
