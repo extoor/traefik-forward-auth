@@ -29,7 +29,7 @@ type ForwardAuth struct {
 	CookieExpire   time.Duration
 	CookieRefresh  time.Duration
 
-	Validator func(string) bool
+	ValidateEmail func(string) bool
 
 	ForwardAuthInfo    bool
 	ForwardAccessToken bool
@@ -198,7 +198,7 @@ func (f *ForwardAuth) authenticate(rw http.ResponseWriter, req *http.Request) in
 		}
 	}
 
-	if state != nil && state.Email != "" && !f.Validator(state.Email) {
+	if state != nil && state.Email != "" && !(ctx.ValidateEmail(state.Email) || f.ValidateEmail(state.Email)) {
 		log.Debug(ctx.Logf("permission denied: removing state %s", state))
 		state = nil
 		saveSession = false
@@ -342,7 +342,7 @@ func (f *ForwardAuth) OAuthCallback(rw http.ResponseWriter, req *http.Request) {
 	}
 
 	// set cookie, or deny
-	if f.Validator(state.Email) && ctx.Provider.ValidateGroup(state.Email) {
+	if (ctx.ValidateEmail(state.Email) || f.ValidateEmail(state.Email)) && ctx.Provider.ValidateGroup(state.Email) {
 		err := f.SaveSession(rw, req, state)
 		if err != nil {
 			log.Error(ctx.Log(err))

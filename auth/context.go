@@ -14,6 +14,12 @@ type RequestContext struct {
 	RemoteAddress   string
 	Provider        providers.Provider
 	DefaultProvider bool
+	AllowedUsers    cfg.Data
+	AllowedDomains  cfg.Data
+}
+
+func (c *RequestContext) ValidateEmail(email string) bool {
+	return ValidateEmailAndDomain(email, &c.AllowedUsers, &c.AllowedDomains)
 }
 
 func (c *RequestContext) ProviderExists() bool {

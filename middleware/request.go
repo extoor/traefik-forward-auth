@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"net/http"
+	"net/url"
 
 	"traefik-forward-auth/auth"
 	cfg "traefik-forward-auth/config"
@@ -28,7 +29,7 @@ func (f MuxHandler) SetProvider(rw http.ResponseWriter, req *http.Request) {
 	}
 
 	if ctx.DefaultProvider && ctx.Provider != provider {
-		log.Errorf(`request provider "%s" is not "%s"`, name, ctx.Provider.Data().ID())
+		log.Error(ctx.Logf(`request provider "%s" is not "%s"`, name, ctx.Provider.Data().ID()))
 		http.Error(rw, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 		return
 	} else {
@@ -48,6 +49,7 @@ func NewForwardRequest(next http.Handler) http.Handler {
 		}
 
 		r := &http.Request{
+			//Method: req.Header.Get("X-Forwarded-Method"),
 			Method: req.Method,
 			URL:    u,
 			Header: req.Header,
@@ -56,11 +58,21 @@ func NewForwardRequest(next http.Handler) http.Handler {
 		ctx := &auth.RequestContext{}
 		ctx.RemoteAddress = utils.GetRemoteAddr(r)
 
+		query, err := url.ParseQuery(req.URL.RawQuery)
+		if err != nil {
+			log.Error(err)
+			http.Error(rw, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			return
+		}
+
+		ctx.AllowedUsers.Parse(query.Get("email"))
+		ctx.AllowedDomains.Parse(query.Get("domain"))
+
 		name, ok := httptreemux.ContextParams(req.Context())["provider"]
 		if ok {
 			provider, err := cfg.AliveProviders.Get(name)
 			if err != nil {
-				log.Error(ctx.Log(err))
+				log.Error(err)
 				http.Error(rw, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 				return
 			}

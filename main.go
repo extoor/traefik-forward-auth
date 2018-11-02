@@ -7,12 +7,12 @@ import (
 	"path"
 	"time"
 
+	"traefik-forward-auth/auth"
 	cfg "traefik-forward-auth/config"
 	"traefik-forward-auth/cookie"
 	"traefik-forward-auth/logging"
 	"traefik-forward-auth/login"
 	. "traefik-forward-auth/middleware"
-	"traefik-forward-auth/validate"
 
 	"github.com/dimfeld/httptreemux"
 )
@@ -35,7 +35,7 @@ func main() {
 		}
 	}
 
-	auth := &ForwardAuth{
+	authenticator := &ForwardAuth{
 		Path: path.Clean("/" + *cfg.Path),
 
 		CookieName:     *cfg.CookieName,
@@ -47,19 +47,19 @@ func main() {
 		ForwardAccessToken: false,
 		ForwardAuthInfo:    true,
 
-		Validator: validate.IsAllowedEmail,
-		LoginPage: login.DefaultPage,
-		Session:   sessionHandler,
+		ValidateEmail: auth.IsAllowedEmail,
+		LoginPage:     login.DefaultPage,
+		Session:       sessionHandler,
 	}
 
 	mux := httptreemux.NewContextMux()
-	mux.NotFoundHandler = auth.Login
+	mux.NotFoundHandler = authenticator.Login
 	mux.GET("/favicon.ico", accepted)
 
-	authMux := mux.NewGroup(auth.Path)
-	authMux.GET("/logout", auth.SignOut)
-	authMux.GET("/login/:provider", MuxHandler(auth.Login).SetProvider)
-	authMux.GET("/callback/:provider", MuxHandler(auth.OAuthCallback).SetProvider)
+	authMux := mux.NewGroup(authenticator.Path)
+	authMux.GET("/logout", authenticator.SignOut)
+	authMux.GET("/login/:provider", MuxHandler(authenticator.Login).SetProvider)
+	authMux.GET("/callback/:provider", MuxHandler(authenticator.OAuthCallback).SetProvider)
 
 	serverMux := httptreemux.NewContextMux()
 	serverMux.GET("/", NewForwardRequest(mux).ServeHTTP)
