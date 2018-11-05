@@ -7,7 +7,7 @@
         <title>Sign in</title>
         <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css">
         <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/font-awesome/4.7.0/css/font-awesome.min.css">
-        <link rel="stylesheet" href="https://min.gitcdn.link/repo/lipis/bootstrap-social/gh-pages/bootstrap-social.css">
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-social/5.1.1/bootstrap-social.min.css">
         <style type="text/css">
             .login-form {
                 width: 340px;
@@ -54,11 +54,11 @@
             {{ .Error.Message }}
         </div>
         {{- end }}
-        <form action="{{ $.Prefix }}/user" method="post">
+        <form action="{{ .Prefix }}/user" method="post">
             <h2 class="text-center text-info">Sign in</h2>
             <div class="text-center">
                 {{- range .Providers }}
-                <a href="{{ $.Prefix }}/{{ .Data.ID }}" class="btn btn-block btn-social btn-{{ with $name := .Data.ID }}{{if eq $name "gitlab"}}tumblr{{ else }}{{ $name }}{{ end }}"><span class="fa fa-{{ $name }}{{ end }}"></span>Sign in with <b>{{ .Data.Name }}</b></a>
+                <a href="{{ $.Prefix }}/{{ .Data.ID }}" class="btn btn-block btn-social btn-{{ with $name := .Data.ID }}{{if eq $name "gitlab"}}bitbucket{{ else }}{{ $name }}{{ end }}"><span class="fa fa-{{ $name }}{{ end }}"></span>Sign in with <b>{{ .Data.Name }}</b></a>
                 {{- end }}
             </div>
             <div class="or-seperator"><span>or</span></div>
